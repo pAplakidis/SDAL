@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import random
+import math
 import glob
 import sys
 import os
@@ -27,7 +28,7 @@ IMG_HEIGHT = 874
 actor_list = []
 
 def render_img(img):
-  cv2.imshow("frame", img)
+  cv2.imshow("DISPLAY", img)
   if cv2.waitKey(1) & 0xFF == 27: pass
 
 
@@ -44,11 +45,24 @@ class Car:
     img = img[:, :, :3]
     self.front_camera = img
 
-  def process_imu(self):
-    pass
+  def process_imu(self, imu):
+    self.bearing_deg = math.degrees(imu.compass)
+    self.acceleration = [imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z]
+    self.gyro = [imu.gyroscope.x, imu.gyroscope.y, imu.gyroscope.z]
 
-  def process_gps(self):
-    pass
+  def process_gps(self, gps):
+    # TODO: update this
+    self.gps_location = {
+      "timestamp": int(time.time() * 1000),
+      "accuracy": 1.0,
+      "speed_accuracy": 0.1,
+      "bearing_accuracy_deg": 0.1,
+      "bearing_deg": self.bearing_deg,
+      "latitude": gps.latitude,
+      "longitude": gps.longitude,
+      "altitude": gps.altitude,
+      "speed": 0,
+    }
 
 
 # TODO: get camera, GPS, IMU data
@@ -89,16 +103,32 @@ def carla_main():
   camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
   camera_bp.set_attribute('fov', '70')
   camera_bp.set_attribute('sensor_tick', '0.05')
-
   spawn_point  = carla.Transform(carla.Location(x=0.8, z=1.13))
   camera = world.spawn_actor(camera_bp, spawn_point, attach_to=vehicle)
   actor_list.append(camera_bp)
-
   camera.listen(lambda img: car.process_img(img))
 
+  # spawn IMU
+  imu_bp = bp_lib.find("sensor.other.imu")
+  imu = world.spawn_actor(imu_bp, spawn_point, attach_to=vehicle)
+  imu.listen(lambda imu: car.process_imu(imu))
+
+  # spawn GPS
+  gps_bp = bp_lib.find("sensor.other.gnss")
+  gps = world.spawn_actor(gps_bp, spawn_point, attach_to=vehicle)
+  gps.listen(lambda gps: car.process_gps(gps))
+
+  # mainloop
+  frame_id = 0  # TODO: frames from different sensors are not synced
   while True:
     if car.front_camera is not None:
       render_img(car.front_camera)
+      print("[+] Frame: ", frame_id, "=>", car.front_camera.shape)
+      print("[->] IMU DATA => acceleration", car.acceleration, " : gyroscope", car.gyro)
+      print("[->] GNSS DATA => latitude", car.gps_location['latitude'],
+            " : longtitude", car.gps_location['longitude'],
+            " : altitude", car.gps_location['altitude'])
+      frame_id += 1
 
 
 if __name__ == '__main__':
