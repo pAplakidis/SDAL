@@ -7,6 +7,7 @@ import time
 import cv2
 import numpy as np
 from multiprocessing import Process, Queue
+from threading import Thread
 
 """
 try:
@@ -25,22 +26,30 @@ IMG_HEIGHT = 874
 
 actor_list = []
 
-# TODO: display frames in a new Process outside of carla
-def img_renderer(img):
+def render_img(img):
   cv2.imshow("frame", img)
-  cv2.waitKey(0)
+  if cv2.waitKey(1) & 0xFF == 27: pass
 
-def process_img(img):
-  img = np.array(img.raw_data)
-  img = img.reshape((IMG_HEIGHT, IMG_WIDTH, 4))
-  img = img[:, :, :3]
-  return img/255.0
 
-def process_imu():
-  pass
+class Car:
+  def __init__(self):
+    # TODO: properly init car components
+    #self.front_camera = np.zeros((IMG_HEIGHT, IMG_WIDTH, 3))
+    self.front_camera = None
+    self.pose = None
 
-def process_gps():
-  pass
+  def process_img(self, img):
+    img = np.array(img.raw_data)
+    img = img.reshape((IMG_HEIGHT, IMG_WIDTH, 4))
+    img = img[:, :, :3]
+    self.front_camera = img
+
+  def process_imu(self):
+    pass
+
+  def process_gps(self):
+    pass
+
 
 # TODO: get camera, GPS, IMU data
 def carla_main():
@@ -49,8 +58,10 @@ def carla_main():
   client.set_timeout(2.0)  # seconds
   world = client.get_world()
   world.set_weather(carla.WeatherParameters.ClearSunset)
-  print(world.get_weather)
+  #print(world.get_weather)
   bp_lib = world.get_blueprint_library()
+
+  car = Car()
 
   # spawn a car
   vehicle_bp = bp_lib.filter('vehicle.tesla.*')[1]
@@ -76,20 +87,26 @@ def carla_main():
   camera_bp = bp_lib.find('sensor.camera.rgb')
   camera_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
   camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
-  camera_bp.set_attribute('fov', '110')
+  camera_bp.set_attribute('fov', '70')
+  camera_bp.set_attribute('sensor_tick', '0.05')
 
-  spawn_point  = carla.Transform(carla.Location(x=2.5, z=0.7))
+  spawn_point  = carla.Transform(carla.Location(x=0.8, z=1.13))
   camera = world.spawn_actor(camera_bp, spawn_point, attach_to=vehicle)
   actor_list.append(camera_bp)
 
-  camera.listen(lambda img: process_img(img))
-  #time.sleep(5)
+  camera.listen(lambda img: car.process_img(img))
+
+  while True:
+    if car.front_camera is not None:
+      render_img(car.front_camera)
 
 
 if __name__ == '__main__':
   print("Hello")
   try:
     carla_main()
+  except RuntimeError:
+    print("Restarting ...")
   finally:
     print("destroying all actors")
     for a in actor_list:
