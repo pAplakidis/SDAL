@@ -25,6 +25,8 @@ import carla
 IMG_WIDTH = 1164
 IMG_HEIGHT = 874
 
+out_path = "../collected_data/1/" # CHANGE THIS
+
 actor_list = []
 
 def render_img(img):
@@ -39,10 +41,11 @@ class Car:
     self.front_camera = None
     self.pose = None
 
-  def process_img(self, img):
+  def process_img(self, img, out_cap):
     img = np.array(img.raw_data)
     img = img.reshape((IMG_HEIGHT, IMG_WIDTH, 4))
     img = img[:, :, :3]
+    out_cap.write(img)
     self.front_camera = img
 
   def process_imu(self, imu):
@@ -65,8 +68,11 @@ class Car:
     }
 
 
-# TODO: get camera, GPS, IMU data
 def carla_main():
+  # TODO: out video needs to be hevc format
+  #fourcc = cv2.CV_FOURCC(*'MP4V')
+  out = cv2.VideoWriter(out_path+"video.mp4", cv2.VideoWriter_fourcc('M','J','P','G'), 20.0, (IMG_WIDTH, IMG_HEIGHT))
+
   # setup
   client = carla.Client('localhost', 2000)
   client.set_timeout(2.0)  # seconds
@@ -106,7 +112,7 @@ def carla_main():
   spawn_point  = carla.Transform(carla.Location(x=0.8, z=1.13))
   camera = world.spawn_actor(camera_bp, spawn_point, attach_to=vehicle)
   actor_list.append(camera_bp)
-  camera.listen(lambda img: car.process_img(img))
+  camera.listen(lambda img: car.process_img(img, out))
 
   # spawn IMU
   imu_bp = bp_lib.find("sensor.other.imu")
@@ -120,15 +126,21 @@ def carla_main():
 
   # mainloop
   frame_id = 0  # TODO: frames from different sensors are not synced
-  while True:
-    if car.front_camera is not None:
-      render_img(car.front_camera)
-      print("[+] Frame: ", frame_id, "=>", car.front_camera.shape)
-      print("[->] IMU DATA => acceleration", car.acceleration, " : gyroscope", car.gyro)
-      print("[->] GNSS DATA => latitude", car.gps_location['latitude'],
-            " : longtitude", car.gps_location['longitude'],
-            " : altitude", car.gps_location['altitude'])
-      frame_id += 1
+  try:
+    while True:
+      if car.front_camera is not None:
+        render_img(car.front_camera)
+        print("[+] Frame: ", frame_id, "=>", car.front_camera.shape)
+        print("[->] IMU DATA => acceleration", car.acceleration, " : gyroscope", car.gyro)
+        print("[->] GNSS DATA => latitude", car.gps_location['latitude'],
+              " : longtitude", car.gps_location['longitude'],
+              " : altitude", car.gps_location['altitude'])
+        frame_id += 1
+  except KeyboardInterrupt:
+    print("[~] Stopped recording")
+  
+  out.release()
+  print("[+] Camera recordings saved at: ", out_path+"video.mp4")
 
 
 if __name__ == '__main__':
@@ -141,5 +153,6 @@ if __name__ == '__main__':
     print("destroying all actors")
     for a in actor_list:
       a.destroy()
-    print('done')
+    cv2.destroyAllWindows()
+    print('Done')
 
