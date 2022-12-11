@@ -20,12 +20,15 @@ except IndexError as e:
   print("index error", e)
 """
 
+
 import carla
 
+PATH = []
 IMG_WIDTH = 1164
 IMG_HEIGHT = 874
 
-out_path = "../collected_data/1/" # CHANGE THIS
+out_path = "../collected_data/2/"   # CHANGE THIS
+plog_path = "../collected_data/2/"  # CHANGE THIS
 
 actor_list = []
 
@@ -68,6 +71,7 @@ class Car:
     }
 
 
+# TODO: using carla's locations instead of GNSS, visual odometry, etc is just a temp fix
 def carla_main():
   # TODO: out video needs to be hevc format
   #fourcc = cv2.CV_FOURCC(*'MP4V')
@@ -125,22 +129,36 @@ def carla_main():
   gps.listen(lambda gps: car.process_gps(gps))
 
   # mainloop
+  # TODO: car moves like crazy after a while!!!
   frame_id = 0  # TODO: frames from different sensors are not synced
   try:
     while True:
+      lx,ly,lz = vehicle.get_location().x, vehicle.get_location().y ,vehicle.get_location().z
+      #rx,ry,rz = vehicle.get_orientation().x, vehicle.get_orientation().y ,vehicle.get_orientation().z
+
       if car.front_camera is not None:
         render_img(car.front_camera)
         print("[+] Frame: ", frame_id, "=>", car.front_camera.shape)
+        print("[+] Car Location: (x y z)=(", lx,ly,lz, ")")
+        PATH.append((lx, ly, lz))
+        #print("[+] Car Rotation: (x y z)=(", rx,ry,rz, ")")
         print("[->] IMU DATA => acceleration", car.acceleration, " : gyroscope", car.gyro)
         print("[->] GNSS DATA => latitude", car.gps_location['latitude'],
               " : longtitude", car.gps_location['longitude'],
               " : altitude", car.gps_location['altitude'])
+        print()
         frame_id += 1
   except KeyboardInterrupt:
     print("[~] Stopped recording")
   
   out.release()
   print("[+] Camera recordings saved at: ", out_path+"video.mp4")
+  path = np.array(PATH)
+  print(path)
+  print(path.shape)
+
+  # TODO: preprocess path so that it's coordinates can be projected on 2D display
+  #np.save(plog_path, np.array(PATH))
 
 
 if __name__ == '__main__':
@@ -155,4 +173,3 @@ if __name__ == '__main__':
       a.destroy()
     cv2.destroyAllWindows()
     print('Done')
-
