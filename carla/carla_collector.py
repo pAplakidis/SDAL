@@ -26,11 +26,17 @@ import carla
 PATH = []
 IMG_WIDTH = 1164
 IMG_HEIGHT = 874
+REC_TIME = 60 # recording length in seconds
 
-out_path = "../collected_data/2/"   # CHANGE THIS
-plog_path = "../collected_data/2/"  # CHANGE THIS
+out_path = "../collected_data/3/"   # CHANGE THIS
+if not os.path.exists(out_path):
+  os.mkdir(out_path)
+plog_path = out_path+"path.npy"  # CHANGE THIS
 
 actor_list = []
+# TODO: make a small menu for selecting map, weather and time of day
+weather = {}
+map = {}
 
 def render_img(img):
   cv2.imshow("DISPLAY", img)
@@ -131,6 +137,7 @@ def carla_main():
   # mainloop
   # TODO: car moves like crazy after a while!!!
   frame_id = 0  # TODO: frames from different sensors are not synced
+  start_time = time.time()
   try:
     while True:
       lx,ly,lz = vehicle.get_location().x, vehicle.get_location().y ,vehicle.get_location().z
@@ -148,9 +155,12 @@ def carla_main():
               " : altitude", car.gps_location['altitude'])
         print()
         frame_id += 1
+        if time.time() - start_time >= REC_TIME:
+          break
   except KeyboardInterrupt:
     print("[~] Stopped recording")
   
+  print("[+] Time recorded: %.2f"%(time.time() - start_time))
   out.release()
   print("[+] Camera recordings saved at: ", out_path+"video.mp4")
   path = np.array(PATH)
@@ -158,7 +168,7 @@ def carla_main():
   print(path.shape)
 
   # TODO: preprocess path so that it's coordinates can be projected on 2D display
-  #np.save(plog_path, np.array(PATH))
+  np.save(plog_path, np.array(PATH))
 
 
 if __name__ == '__main__':
