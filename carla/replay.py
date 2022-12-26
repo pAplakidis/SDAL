@@ -19,12 +19,12 @@ data_path = "../collected_data/2/"   # CHANGE THIS
 plog_path = data_path+"path.npy"  # CHANGE THIS
 
 def draw_path(path, img, width=1, height=1.2, fill_color=(128,0,255), line_color=(0,255,0)):
+  # TODO: debug 3D to 2D convertion
   img_points_norm = img_from_device(path) # TODO: this outputs NAN
   img_pts = denormalize(img_points_norm)
   valid = np.isfinite(img_pts).all(axis=1)
   img_pts = img_pts[valid].astype(int)
 
-  # BUG: after a while, the beginning of the path disappears!!!
   print(len(img_pts))
   for i in range(1, len(img_pts)):
     #print(img_pts[i])
@@ -32,6 +32,7 @@ def draw_path(path, img, width=1, height=1.2, fill_color=(128,0,255), line_color
 
 
 if __name__ == '__main__':
+  renderer = Renderer3D(RW, RH)
   cap = cv2.VideoCapture(data_path+"video.mp4")
   path = np.load(plog_path)
   local_path = get_local_path(path)
@@ -45,10 +46,11 @@ if __name__ == '__main__':
     print("[+] Frame %d"%(frame_id))
     #print(path[frame_id])
 
+    renderer.draw(local_path)
     frame_path = local_path[frame_id:frame_id+LOOKAHEAD]
     print(frame_path.shape)
     draw_path(frame_path, frame)
-    cv2.imshow("DISPLAY", frame)
+    cv2.imshow("2D DISPLAY", frame)
     if cv2.waitKey(30) == ord('q'):
       break
     frame_id += 1

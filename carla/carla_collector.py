@@ -135,8 +135,7 @@ def carla_main():
   gps.listen(lambda gps: car.process_gps(gps))
 
   # mainloop
-  # TODO: car moves like crazy after a while!!!
-  frame_id = 0  # TODO: frames from different sensors are not synced
+  frame_id = 0
   start_time = time.time()
   try:
     while True:
@@ -148,6 +147,7 @@ def carla_main():
         print("[+] Frame: ", frame_id, "=>", car.front_camera.shape)
         print("[+] Car Location: (x y z)=(", lx,ly,lz, ")")
         PATH.append((lx, ly, lz))
+        # TODO: get car orientation/rotation-matrix as well
         #print("[+] Car Rotation: (x y z)=(", rx,ry,rz, ")")
         print("[->] IMU DATA => acceleration", car.acceleration, " : gyroscope", car.gyro)
         print("[->] GNSS DATA => latitude", car.gps_location['latitude'],
@@ -161,17 +161,16 @@ def carla_main():
     print("[~] Stopped recording")
   
   print("[+] Time recorded: %.2f"%(time.time() - start_time))
-  out.release()
   print("[+] Camera recordings saved at: ", out_path+"video.mp4")
   path = np.array(PATH)
   print(path)
   print(path.shape)
-
-  # TODO: preprocess path so that it's coordinates can be projected on 2D display
   np.save(plog_path, np.array(PATH))
+  out.release()
 
 
 if __name__ == '__main__':
+  # TODO: put this in a big loop that keeps collecting data for different files
   print("Hello")
   try:
     carla_main()

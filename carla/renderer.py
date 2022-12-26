@@ -17,10 +17,10 @@ class Renderer3D:
 
 
   def display_init(self):
-    pangolin.CreateWindowAndBind('Main', self.W, self.H)
+    pangolin.CreateWindowAndBind('3D DISPLAY', self.W, self.H)
     gl.glEnable(gl.GL_DEPTH_TEST)
 
-    self.scam = pangolin.OpenGLRendereState(pangolin.ProjectionMatrix(self.W, self.H,
+    self.scam = pangolin.OpenGlRenderState(pangolin.ProjectionMatrix(self.W, self.H,
                 420, 420, self.W//2, self.H//2, 0.2, 100),
                 pangolin.ModelViewLookAt(-2, 2, -2, 0, 0, 0, pangolin.AxisDirection.AxisY))
 
@@ -38,26 +38,28 @@ class Renderer3D:
 
     # TODO: render poses instead of points
     # Draw camera
-    if self.poses is not None:
-      #gl.glLineWidth(1)
-      #gl.glColor3f(0.0, 1.0, 0.0)
-      #pangolin.DrawCameras(self.poses, 0.5, 0.75, 0.8)
-      gl.glPointSize(2)
-      gl.glColor3f(1.0, 0.0, 0.0)
-      pangolin.DrawPoints(self.poses)
+    while not pangolin.ShouldQuit():
+      while not q.empty():
+        self.poses = q.get()
+
+      gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+      self.dcam.Activate(self.scam)
+
+      if self.poses is not None:
+        #gl.glLineWidth(1)
+        #gl.glColor3f(0.0, 1.0, 0.0)
+        #pangolin.DrawCameras(self.poses, 0.5, 0.75, 0.8)
+        gl.glPointSize(2)
+        gl.glColor3f(1.0, 0.0, 0.0)
+        pangolin.DrawPoints(self.poses)
 
       pangolin.FinishFrame()
 
-  # NOTE: call this from the main function whenever a new path pose needs to be drawn
-  # TODO: make this work with this project instead of SLAM
-  def draw(self, frames):
+  def draw(self, path):
     if self.q is None:
       return
 
     poses = []
-    for frame in frames:
-      #pose = np.identity(4)
-      #pose[:3, 3] = TfromRt(frame.pose)
-      #poses.append(pose)
-      poses.append(frame.pose)
+    for pose in path:
+      poses.append(pose)
     self.q.put(np.array(poses))

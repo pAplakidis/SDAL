@@ -2,6 +2,8 @@ import numpy as np
 
 IMG_WIDTH = 1164
 IMG_HEIGHT = 874
+RW = 1920//2
+RH = 1080//2
 REC_TIME = 60 # recording length in seconds
 LOOKAHEAD = 200
 
