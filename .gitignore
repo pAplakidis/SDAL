@@ -2,4 +2,6 @@ __pycache__/
 .*.swp
 .ipynb_checkpoints/
 collected_data/
+segmentation/models/
+segmentation/data/
 
