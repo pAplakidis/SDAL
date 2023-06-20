@@ -1,0 +1,305 @@
+commit 1766fba0f423c3e605c7735aa42c9769eef8b890
+Author: pAplakidis <aplakidisp@gmail.com>
+Date:   Mon Jun 19 17:01:44 2023 +0300
+
+    added desire and progress bar to HUD of replay
+
+commit afc9bea75d2ae9e853d6a971203efdac69581b09
+Author: pAplakidis <aplakidisp@gmail.com>
+Date:   Mon Jun 19 16:37:59 2023 +0300
+
+    code cleanup + lane changes
+
+commit 19af3479ee6c7b21e2d39862e6cba0688ddc5603
+Author: pAplakidis <aplakidisp@gmail.com>
+Date:   Sat Jun 17 10:50:46 2023 +0300
+
+    added random vehicles + pedestrians
+
+commit 99ce49d0e0234bc9a3ff2195c501214272585e57
+Author: pAplakidis <aplakidisp@gmail.com>
+Date:   Fri Jun 16 18:40:38 2023 +0300
+
+    added DESIRE from blinkers
+
+commit ddb52a9eb27e8ab21f93d6e4d9ff96b56a867dce
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Thu May 18 11:11:41 2023 +0300
+
+    moved path display to liveplot using plotly
+
+commit 7984efb0dec5be20999b4c2e1fa3d16078dee782
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Wed May 17 12:42:38 2023 +0300
+
+    added 2D display for frame-path
+
+commit f599f96843e2c47aa17fd84bd33f085a9109cb04
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Tue May 9 11:17:51 2023 +0300
+
+    updated showcase
+
+commit 1a70dcdf2ade92e5502a04e1bfdc46ee36ff0a71
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Tue May 9 11:05:38 2023 +0300
+
+    fixed frame_path rotation
+
+commit 2869c716171d80b6c8f8221016acb11aa2d384f3
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Mon May 8 20:59:52 2023 +0300
+
+    started working on frame_path
+
+commit e27b42214e7ee71123cbc5fc7c8444dea3e54be7
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Thu Mar 30 10:04:07 2023 +0300
+
+    fixed synchronization and autopilot, can now collect proper driving data
+
+commit b3e56751c5cc3d3b41845d1465484c1d36ced4e1
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Fri Mar 24 11:27:51 2023 +0200
+
+    kinda fixed rotation of poses and they render correctly
+
+commit 1a4ae640eed30cd1b64ff5767433f18ff85de47c
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Thu Mar 23 21:08:31 2023 +0200
+
+    rotation from IMU, found BUG: frames do not match poses
+
+commit 3d18f13a93ad728deb795f847e3a5828ea017118
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Wed Mar 22 18:03:48 2023 +0200
+
+    BUGfix: frame count and poses match
+
+commit 2d35539f9156c5538f996e9ad4a2ec97ee1d38b8
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Tue Mar 21 13:51:20 2023 +0200
+
+    some improvements on segmentation scripts, carla menu for weather and map
+
+commit cf74581ff95f93047654cea059c8e9e133d15456
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Mon Mar 20 18:09:46 2023 +0200
+
+    trained segnet the same way as in the paper
+
+commit 88455e0134a27549105121a39f9e26a38f74512d
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Tue Mar 14 09:43:48 2023 +0200
+
+    better usage
+
+commit 2075b055b5796f873fbc727542dfe5c8bdaf48bf
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Tue Mar 14 09:43:05 2023 +0200
+
+    extract road_edges from masked img
+
+commit 05add432be4dd0e278e44efecc2ab90aac7438f7
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Mon Mar 13 11:32:54 2023 +0200
+
+    bugfix for coordinates
+
+commit c9468706223178de443e8b5371d7cfd6633c44af
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Mon Mar 13 10:15:52 2023 +0200
+
+    somewhat fixed poses, 3D to 2D still needs fixing
+
+commit 34f69da5a479c11a3d6ea2b69caf3eb91bcc7e10
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Fri Mar 10 15:17:28 2023 +0200
+
+    tried adding poses instead of points
+
+commit fce6963830ba0509a290297a03d03a75e24dc87d
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Thu Mar 9 09:58:18 2023 +0200
+
+    env variables for epochs and lr
+
+commit 13e05687be1e26c142290b4e097e975ebed6e2cc
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Thu Mar 9 09:53:06 2023 +0200
+
+    some adjustments
+
+commit 91dae930115235fae6d0ca4dbae2c0b9d3e62167
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Wed Mar 8 18:50:28 2023 +0200
+
+    wrote a small app for labeling carla videos
+
+commit 47aaff94908228bd116bab54265432ed0c06fb4c
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Tue Mar 7 15:19:23 2023 +0200
+
+    trained on full dataset, results are not bad
+
+commit 901c7480c91f0f557735ccb4b18d11139c0bebdb
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sun Mar 5 21:57:02 2023 +0200
+
+    convert model output to actual image
+
+commit 99948a4cfffcdcbbf52d4eaac0aa145348f2b085
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sun Mar 5 17:56:21 2023 +0200
+
+    worked on img overlap + broke the code down to modules
+
+commit befc0e8c0e9c19fec46d16cde5922fcae1504d4b
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sun Mar 5 11:47:26 2023 +0200
+
+    added a bad overlay for segmented img
+
+commit f4d388a4cffd0d13ca3438acac463b5cfda7ada0
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sun Mar 5 09:57:45 2023 +0200
+
+    intersection over union coefficient + started trying to view model's outputs
+
+commit 08f1242e8c585f50505ec1c3498134a7d53c95f4
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Fri Mar 3 10:40:08 2023 +0200
+
+    added evaluation for each training epoch
+
+commit e0f5c58cbcb5473d5fe6320c5add870e102a5f8a
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Fri Mar 3 10:23:13 2023 +0200
+
+    added full dataset eval, 70% training split
+
+commit 42e5453a381c72e3e0ca14ec526a5e0c02e5f3bc
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sat Feb 11 17:53:44 2023 +0200
+
+    can finally forward and backward properly
+
+commit c5b2961443e917667c7c538a996fe0ae22c374e6
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sun Jan 29 12:29:13 2023 +0200
+
+    fixed classes
+
+commit 4c08957277369a74015979ce738d96a40fbd33aa
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sat Jan 28 16:56:54 2023 +0200
+
+    started extracting classes from comma dataset
+
+commit 9470a0bd4d0692265a5a414db9a872b7e8546c59
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sat Jan 28 12:07:01 2023 +0200
+
+    can properly forward images to model
+
+commit 03df2d948ad99e604dacd0c2e62a32f5ce8b2e46
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Wed Jan 18 17:27:19 2023 +0200
+
+    stuff
+
+commit 112491b0c57d1672daed6273812df4c44b022259
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Wed Jan 18 16:27:32 2023 +0200
+
+    updated stuff
+
+commit 07eb1d8e2fb81f3dde7c76b30d9fa61e4100fb6b
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Wed Jan 18 15:55:02 2023 +0200
+
+    fixed stuff, problems forwarding to net
+
+commit 57163e7184ac30a19dd3ff80526cf185a7f5f591
+Author: pAplakidis <aplakidisp@gmail.com>
+Date:   Mon Jan 16 18:54:05 2023 +0200
+
+    trainer base
+
+commit 09689b6a72b851cb08f14489c32fcd38225a4edb
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sun Jan 15 12:13:20 2023 +0200
+
+    implemented dataset and dataloader, tests don't work on batch yet
+
+commit 76125ce335fa66b59b9955de24bd63533399ee0f
+Author: pAplakidis <aplakidisp@gmail.com>
+Date:   Thu Jan 12 09:25:43 2023 +0200
+
+    can forward image through net
+
+commit a20a6bf17afed49f85f9f878fc45cd4af103d4e7
+Author: pAplakidis <aplakidisp@gmail.com>
+Date:   Wed Jan 11 16:24:16 2023 +0200
+
+    defined SegNet model
+
+commit 980e83a0c1f58e9914cca7157b123f7fd8054363
+Author: pAplakidis <aplakidisp@gmail.com>
+Date:   Fri Jan 6 20:10:32 2023 +0200
+
+    segmentation skeleton
+
+commit 416638c76db045909f75e9211c061d7cf1cb00fa
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Mon Dec 26 11:02:12 2022 +0200
+
+    fixed 3D display
+
+commit 4bbd326277735f05c80018d8a64cb3c386b83538
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sat Dec 24 15:21:09 2022 +0200
+
+    a simple 3D renderer for the path
+
+commit c9a8b7588909e48dfcafffeb3fc179dd69065975
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Fri Dec 23 18:29:03 2022 +0200
+
+    display a buggy path that fades away
+
+commit 19ff553e563f8fd49f8a377f939bac241928f6c9
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Thu Dec 22 14:49:41 2022 +0200
+
+    read and display saved video and path data
+
+commit d7c8ee21499c2f5c44f60bf0b76e73c24ef72eed
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sun Dec 11 16:41:56 2022 +0200
+
+    started collecting path data
+
+commit 974b9edefd29fc4d7bd83c1ec3030aec8df9c2e5
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sat Dec 10 12:14:10 2022 +0200
+
+    save camera data into mp4 file
+
+commit 84203eda0fa41617f3457b253754f026ac85b2ee
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sat Nov 26 20:24:59 2022 +0200
+
+    added IMU and GPS
+
+commit ac8f25492a107ebba7a78bae6542afeb7a8c4746
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Sat Nov 26 19:51:04 2022 +0200
+
+    can convert sensor data to paths + fixed carla camera display
+
+commit 0db03de88a0f57693c4e223e116815ae597e0856
+Author: pAplakidis <user.email=aplakidisp@gmail.com>
+Date:   Mon Nov 21 13:41:05 2022 +0200
+
+    started coding

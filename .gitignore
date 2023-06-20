@@ -1,0 +1,9 @@
+__pycache__/
+.*.swp
+.ipynb_checkpoints/
+collected_data/
+segmentation/models/
+segmentation/data/
+segmentation/runs/
+carla/*.png
+

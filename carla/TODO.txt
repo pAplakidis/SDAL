@@ -1,0 +1,8 @@
+- DEBUG: pedestrians don't move
+- variety of weather and time of the day  (DONE)
+- simulate different traffic scenarios
+- DEBUG: no blinkers when lane-changing
+- collect equal videos of each scenario (about 10 each?)
+
+NOTE: 1 unreal unit = 2cm
+
