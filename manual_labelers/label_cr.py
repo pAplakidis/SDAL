@@ -40,7 +40,7 @@ if __name__ == '__main__':
         label = 1
       elif key & 0xff == ord('q'):
         break
-      labels.append(label)
+      labels.append([label])
       print("Label:", label, "=>", CROSSROAD[label])
 
     else:
