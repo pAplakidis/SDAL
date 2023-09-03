@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
-import random
-import math
-import glob
-import sys
 import os
 import time
 import cv2
 import numpy as np
-from multiprocessing import Process, Queue
-from threading import Thread
 
 """
 import matplotlib
@@ -36,6 +30,12 @@ plog_poses = data_path + "poses.npy"  # global poses
 fpath_log = data_path + "frame_paths.npy"
 desire_dir = data_path + "desires.npy"
 
+RENDER = os.getenv("RENDER")
+if RENDER is None or RENDER == "True":
+  RENDER = True
+else:
+  RENDER = False
+
 FRAME_PATHS = []  # NOTE: these are 2D for the time being
 
 def figshow(fig):
@@ -44,11 +44,12 @@ def figshow(fig):
   buf.seek(0)
   file_bytes = np.asarray(bytearray(buf.read()), dtype=np.uint8)
   img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-  cv2.imshow("Path Plot", img)
+  cv2.imshow("2D DISPLAY", img)
 
 
 if __name__ == '__main__':
-  renderer = Renderer3D(RW, RH)
+  if RENDER:
+    renderer = Renderer3D(RW, RH)
   cap = cv2.VideoCapture(video_path)
   poses = np.load(plog_poses)
   local_poses, local_path, local_orientations = get_relative_poses(poses)
@@ -75,14 +76,16 @@ if __name__ == '__main__':
 
     print("[+] Frame %d"%(frame_id))
     # draw global path (3D) and calculate frame path (2D)
-    renderer.draw(local_path[:frame_id+LOOKAHEAD], local_poses[frame_id])
+    if RENDER:
+      renderer.draw(local_path[:frame_id+LOOKAHEAD], local_poses[frame_id])
     fpath = local_path[frame_id:frame_id+LOOKAHEAD]
     if len(fpath) == LOOKAHEAD:
       frame_path, frame_path_2d = get_frame_path(fpath)
 
       fig.data[0].x = frame_path_2d[:, 0]
       fig.data[0].y = frame_path_2d[:, 1]
-      figshow(fig)
+      if RENDER:
+        figshow(fig)
 
       FRAME_PATHS.append(frame_path_2d)
     else:
@@ -93,8 +96,9 @@ if __name__ == '__main__':
     print("Frame Location (x,y,z):")
     print(local_path[frame_id])
     print("Frame Path Size:", frame_path.shape)
-    draw_path(frame_path, frame)
-    #cv2.imshow("2D DISPLAY", display_2D)
+    # TODO: fix this
+    if RENDER:
+      draw_path(frame_path, frame)
 
     # Image Display
     font = cv2.FONT_HERSHEY_SIMPLEX 
@@ -128,12 +132,11 @@ if __name__ == '__main__':
     text = f"{int(progress)}%"
     frame = cv2.putText(frame, text, (w - 150, h - 50), font,
                         fontScale, (0, 0, 255), thickness, cv2.LINE_AA)
-    
 
-
-    cv2.imshow("2D DISPLAY", frame)
-    if cv2.waitKey(30) == ord('q'):
-      break
+    if RENDER:
+      cv2.imshow(video_path, frame)
+      if cv2.waitKey(30) == ord('q'):
+        break
     frame_id += 1
 
     print()
@@ -146,3 +149,5 @@ if __name__ == '__main__':
   print(FRAME_PATHS.shape)
   np.save(fpath_log, FRAME_PATHS)
   print("[+] Frame Paths (2D) saved at", fpath_log)
+  if RENDER:
+    renderer.p.kill()

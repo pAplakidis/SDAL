@@ -55,6 +55,12 @@ if not os.path.exists(out_path):
 plog_poses = out_path+"poses.npy"
 plog_desires = out_path+"desires.npy"
 
+RENDER = os.getenv("RENDER")
+if RENDER is None or RENDER == "True":
+  RENDER = True
+else:
+  RENDER = False
+
 map_idx = os.getenv("MAP")
 if map_idx == None:
   print("Using default map Town01")
@@ -86,6 +92,8 @@ Town04	A small town embedded in the mountains with a special "figure of 8" infin
 Town05	Squared-grid town with cross junctions and a bridge. It has multiple lanes per direction. Useful to perform lane changes.
 Town06	Long many lane highways with many highway entrances and exits. It also has a Michigan left.
 Town07	A rural environment with narrow roads, corn, barns and hardly any traffic lights.
+
+NOTE: maps >7 not found
 Town08	Secret "unseen" town used for the Leaderboard challenge
 Town09	Secret "unseen" town used for the Leaderboard challenge
 Town10	A downtown urban environment with skyscrapers, residential buildings and an ocean promenade.
@@ -100,11 +108,6 @@ maps = [
   "Town05",
   "Town06",
   "Town07",
-  "Town08",
-  "Town09",
-  "Town10",
-  "Town11",
-  "Town12"
   ]
 curr_map = maps[map_idx]
 
@@ -135,9 +138,13 @@ weather = {
   "SoftRainNight": carla.WeatherParameters(cloudiness=80.0,
                                    precipitation=25.0,
                                    sun_altitude_angle=-20.0)
-
-  }
-WEATHER = weather["CloudyNoon"]
+}
+WEATHER_KEY = os.getenv("WEATHER")
+if WEATHER_KEY is None:
+  print("[+] Using default weather:", "CloudyNoon")
+  WEATHER = weather["CloudyNoon"]
+else:
+  WEATHER = weather[WEATHER_KEY]
 
 # actors lists
 actor_list = []
@@ -145,8 +152,9 @@ vehicles = []
 walkers = []
 
 
+# TODO: display info on screen but not on the frame that we record (we need that clean)
 def render_img(img):
-  cv2.imshow("DISPLAY", img)
+  cv2.imshow(out_path, img)
   if cv2.waitKey(1) & 0xFF == 27: pass
 
 
@@ -171,9 +179,9 @@ class Car:
     self.front_camera = img
 
   def process_imu(self, imu):
-    self.bearing_deg = math.degrees(imu.compass)
-    self.acceleration = [imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z]
-    self.gyro = [imu.gyroscope.x, imu.gyroscope.y, imu.gyroscope.z]
+    self.bearing_deg = math.degrees(imu.compass)  # radians
+    self.acceleration = [imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z] # m/s**2
+    self.gyro = [imu.gyroscope.x, imu.gyroscope.y, imu.gyroscope.z] # radians
 
   def process_gps(self, gps):
     # TODO: update this
@@ -333,11 +341,13 @@ def carla_main():
       #rot = vehicle.get_transform().get_forward_vector()
       #rx, ry, rz = rot.x, rot.y, rot.z
       location = [lx, ly, lz]
+      # TODO: use IMU to also get acceleration
       if car.gyro is not None:
         rotation = [car.gyro[0], car.gyro[1], car.gyro[2]]  # NOTE: IMU data could be noisy
 
       if car.front_camera is not None:
-        render_img(car.front_camera)
+        if RENDER:
+          render_img(car.front_camera)
         print("[+] Frame: ", frame_id, "=>", car.front_camera.shape)
 
         print("[+] Car Location: (x y z)=(", location, ")")
