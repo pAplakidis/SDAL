@@ -1,14 +1,15 @@
 - BUG: pedestrians don't move
 - BUG: no blinkers when lane-changing
 
-- manually label crossroads on data 40+
+- more highway driving data (maps 4 and 6)
 
-- better labeler for crossroads (all 0 and select the frames with 1)
-- script for automating the whole data collection process
+* for later on:
 - simulate different traffic scenarios
 - collect equal videos of each scenario (about 10 each?)
 
+- manually label crossroads on data 40+ (DONE)
 - variety of weather and time of the day  (DONE)
+- script for automating the whole data collection process (DONE)
 
 NOTE: 1 unreal unit = 2cm
 
