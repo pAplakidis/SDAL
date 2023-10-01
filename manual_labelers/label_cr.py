@@ -4,6 +4,8 @@ import sys
 import cv2
 import numpy as np
 
+# USAGE: DATA_PATH="../collected_data/91/" ./label_cr.py
+
 # (3, 960, 1280) inputs images
 W = 1280
 H = 960

@@ -1,8 +1,6 @@
 - BUG: pedestrians don't move
 - BUG: no blinkers when lane-changing
 
-- more highway driving data (maps 4 and 6)
-
 * for later on:
 - simulate different traffic scenarios
 - collect equal videos of each scenario (about 10 each?)
