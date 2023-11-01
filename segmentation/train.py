@@ -13,8 +13,9 @@ from train_utils import *
 
 # EXAMPLE RUN: TRAIN=1 BS=2 EPOCHS=100 LR=1e-3 WRITER_PATH="runs/overfit" MODEL_PATH="models/segnet.pth" ./train.py
 
-# TODO: train with SGD(lr=0.1, momentum=0.9), just like the paper
-# TODO: add weight to the loss of different classes based on frequency (high frequency => weight<1)
+# TODO: lr=1e-4
+
+base_dir = "data/"  # base directory for training dataset
 
 TRAIN = os.getenv("TRAIN")
 if TRAIN == None or TRAIN == '1':
@@ -60,11 +61,13 @@ if __name__ == '__main__':
   print("[+] Classes Found:", classes.shape)
   print(classes)
 
+  N_WORKERS = 8
+
   # get data
   dataset = CommaDataset(base_dir, classes)
   train_set, val_set = random_split(dataset, [int(len(dataset)*0.7)+1, int(len(dataset)*0.3)])
-  train_loader = DataLoader(train_set, batch_size=BS, shuffle=True, num_workers=0)
-  val_loader = DataLoader(val_set, batch_size=BS, shuffle=True, num_workers=0)
+  train_loader = DataLoader(train_set, batch_size=BS, shuffle=True, num_workers=N_WORKERS, pin_memory=True)
+  val_loader = DataLoader(val_set, batch_size=BS, shuffle=True, num_workers=N_WORKERS, pin_memory=True)
 
   # define model and train
   in_samp = dataset[0]['image']

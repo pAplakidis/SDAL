@@ -21,5 +21,6 @@ It uses data from Carla autonomous driving simulator
 * extract labels from segmented images using digital image processing
 * detect poses instead of points (Rt matrix)  (optional)
 * implement visual SLAM
-* implement sensor fusion using Kalman Filters
+* implement sensor fusion (visual odometry, GNSS, IMU) using Kalman Filters
+* implement a localizer
 

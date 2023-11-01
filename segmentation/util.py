@@ -25,8 +25,7 @@ CLASSES:
  [ 96 128 128]] : non-driveable area
 """
 
-# TODO: other cars (GREEN) class is missing in both processed groundtruth and prediction
-# + the model skips laneline (RED) class
+# TODO: the model skips laneline (RED) class
 def segnet_to_rgb(img, classes):
   # NOTE: 5,360,480 means that each channel of the 5 is a probability the pixel belongs in a specific class
   indices = torch.argmax(img, dim=0)
@@ -98,12 +97,12 @@ if __name__ == "__main__":
   for i in range(1):
     samp = dataset[random.randint(0, len(dataset))]
     img, mask = samp['image'], samp['mask']
-    overlay = overlay_mask(img, mask)
+    # overlay = overlay_mask(img, mask)
     print(img.shape)
     print(mask.shape)
     cv2.imshow('image', img)
     cv2.imshow('mask', mask)
-    cv2.imshow('overlay', overlay)
+    # cv2.imshow('overlay', overlay)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 

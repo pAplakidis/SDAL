@@ -55,7 +55,7 @@ class CommaDataset(Dataset):
     if self.for_net:
       img = np.moveaxis(img, -1, 0)
     mask = cv2.imread(self.mask_path(self.mask_list[idx]))
-    mask = cv2.resize(mask, (W,H))
+    mask_original = cv2.resize(mask, (W,H))
 
     """
     print(mask.shape)
@@ -72,9 +72,9 @@ class CommaDataset(Dataset):
     """
 
     if self.for_net:
-      mask = self.onehot(mask)
+      mask = self.onehot(mask_original)
       mask = np.moveaxis(mask, -1, 0)
-    return {'image': img, 'mask': mask}
+    return {'image': img, 'mask': mask, "mask_original": mask_original}
 
   def img_path(self, f):
     return self.img_dir+f
@@ -126,8 +126,7 @@ class Trainer:
 
   def train(self, epochs=100, lr=1e-1, path=None):
     self.model.train()
-    class_weights = [0.7, 1., 0.3, 0.6, 0.7]
-    class_weights = torch.FloatTensor(class_weights).to(self.device)
+    class_weights = torch.FloatTensor([0.3, 0.3, 0.2, 0.1, 0.1]).to(self.device)  # TODO: finetune class weights
     loss_func = nn.CrossEntropyLoss(weight=class_weights)
     optim = torch.optim.SGD(self.model.parameters(), lr=lr, momentum=0.9)
     #optim = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -167,7 +166,7 @@ class Trainer:
       return val_losses, val_iou
 
     losses = []
-    px_accuracies = []
+    px_accuracies = []  # TODO: per class accuracies
     iou_accuracies = []
     vlosses = []
 
