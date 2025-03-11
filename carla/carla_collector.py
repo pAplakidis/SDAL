@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 import random
 import math
-import glob
-import sys
 import os
 import time
 import cv2
 import numpy as np
-from multiprocessing import Process, Queue
-from threading import Thread
+from PIL import Image
+from tqdm import tqdm
 
 """
 try:
@@ -27,7 +25,11 @@ import carla
 
 # EXAMPLE RUN: OUT_PATH="../collected_data/23/" MAP=2 ./carla_collector.py
 
+HOST = "localhost"
+PORT = 2000
+
 FRAMES = []
+SEG_FRAMES = []
 POSES = []
 DESIRES = []
 
@@ -153,8 +155,9 @@ walkers = []
 
 
 # TODO: display info on screen but not on the frame that we record (we need that clean)
-def render_img(img):
-  cv2.imshow(out_path, img)
+def render_img(img, seg_img):
+  cv2.imshow("RGB", img)
+  cv2.imshow("SEG", seg_img)
   if cv2.waitKey(1) & 0xFF == 27: pass
 
 
@@ -164,6 +167,7 @@ class Car:
     # TODO: properly init car components
     #self.front_camera = np.zeros((IMG_HEIGHT, IMG_WIDTH, 3))
     self.front_camera = None
+    self.seg_camera = None
     self.pose = None
     self.gyro = None
 
@@ -172,11 +176,19 @@ class Car:
     img = img.reshape((IMG_HEIGHT, IMG_WIDTH, 4))
     img = img[:, :, :3]
 
-    if location is not None and rotation is not None and desire is not None:
+    if self.seg_camera is not None and location is not None and rotation is not None and desire is not None:
       FRAMES.append(img)
       POSES.append((location, rotation))
       DESIRES.append(desire)
+      SEG_FRAMES.append(self.seg_camera)
     self.front_camera = img
+
+  # FIXME: monochromatic images (red or blue)
+  def process_seg_img(self, img):
+    img = np.array(img.raw_data)
+    img = img.reshape((IMG_HEIGHT, IMG_WIDTH, 4))
+    img = img[:, :, :3]
+    self.seg_camera = img 
 
   def process_imu(self, imu):
     self.bearing_deg = math.degrees(imu.compass)  # radians
@@ -205,8 +217,8 @@ def carla_main():
   location, rotation, desire = None, None, None
 
   # setup
-  client = carla.Client('localhost', 2000)
-  client.set_timeout(2.0)  # seconds
+  client = carla.Client(HOST, PORT)
+  client.set_timeout(5.0)  # seconds
   #world = client.get_world()
   print("Loading Map:", curr_map)
   world = client.load_world(curr_map)
@@ -289,18 +301,29 @@ def carla_main():
   vehicle.set_autopilot(True)
   actor_list.append(vehicle)
 
-  # spawn camera
+  # spawn segmentation camera
+  seg_cam_bp = bp_lib.find('sensor.camera.semantic_segmentation')
+  seg_cam_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
+  seg_cam_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
+  seg_cam_bp.set_attribute('fov', '70')
+  seg_cam_bp.set_attribute('sensor_tick', '0.05')
+  camera_spawn_point  = carla.Transform(carla.Location(x=0.8, z=1.13))  # dashcam location
+  seg_camera = world.spawn_actor(seg_cam_bp, camera_spawn_point, attach_to=vehicle)
+  actor_list.append(seg_camera)
+  seg_camera.listen(lambda img: car.process_seg_img(img))
+  print("Segmentation camera Spawned at", spawn_point)
+
+  # spawn RGB camera
   camera_bp = bp_lib.find('sensor.camera.rgb')
   camera_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
   camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
   camera_bp.set_attribute('fov', '70')
   camera_bp.set_attribute('sensor_tick', '0.05')
-  spawn_point  = carla.Transform(carla.Location(x=0.8, z=1.13))  # dashcam location
-  #spawn_point  = carla.Transform(carla.Location(x=-8., z=2.)) # NOTE: third-person camera view for debugging
-  camera = world.spawn_actor(camera_bp, spawn_point, attach_to=vehicle)
-  actor_list.append(camera_bp)
+  #camera_spawn_point  = carla.Transform(carla.Location(x=-8., z=2.)) # NOTE: third-person camera view for debugging
+  camera = world.spawn_actor(camera_bp, camera_spawn_point, attach_to=vehicle)
+  actor_list.append(camera)
   camera.listen(lambda img: car.process_img(img, location, rotation, desire))
-  print("Camera Spawned")
+  print("RGB camera Spawned at", spawn_point)
 
   # spawn IMU
   imu_bp = bp_lib.find("sensor.other.imu")
@@ -345,37 +368,39 @@ def carla_main():
       if car.gyro is not None:
         rotation = [car.gyro[0], car.gyro[1], car.gyro[2]]  # NOTE: IMU data could be noisy
 
-      if car.front_camera is not None:
-        if RENDER:
-          render_img(car.front_camera)
-        print("[+] Frame: ", frame_id, "=>", car.front_camera.shape)
+      if car.front_camera is None or car.seg_camera is None:
+        continue
 
-        print("[+] Car Location: (x y z)=(", location, ")")
-        print("[+] Car Rotation: (x y z)=(", rotation, ")")
-        print("[->] IMU DATA => acceleration", car.acceleration, " : gyroscope", car.gyro)
-        print("[->] GNSS DATA => latitude", car.gps_location['latitude'],
-              " : longtitude", car.gps_location['longitude'],
-              " : altitude", car.gps_location['altitude'])
+      if RENDER:
+        render_img(car.front_camera, car.seg_camera)
 
-        # get blinkers state => DESIRE
-        light_state = vehicle.get_light_state()
-        right_blinker = bool(light_state & (0x1 << RIGHT_BLINKER_POS))
-        left_blinker = bool(light_state & (0x1 << LEFT_BLINKER_POS))
-        print("Blinkers (l/r):", left_blinker, right_blinker)
-        if right_blinker and not left_blinker:
-          desire = 1  # desire: right
-        elif not right_blinker and left_blinker:
-          desire = 2  # desire: left
-        else:
-          desire = 0  # desire: forward
-        print("DESIRE:", desire, "=>", DESIRE[desire])
+      print("[+] Frame: ", frame_id, "=>", car.front_camera.shape)
+      print("[+] Car Location: (x y z)=(", location, ")")
+      print("[+] Car Rotation: (x y z)=(", rotation, ")")
+      print("[->] IMU DATA => acceleration", car.acceleration, " : gyroscope", car.gyro)
+      print("[->] GNSS DATA => latitude", car.gps_location['latitude'],
+            " : longtitude", car.gps_location['longitude'],
+            " : altitude", car.gps_location['altitude'])
 
-        frame_id += 1
-        curr_time = time.time() - start_time
-        print("Current Time: %.2fs"%curr_time)
-        print()
-        if curr_time >= REC_TIME:
-          break
+      # get blinkers state => DESIRE
+      light_state = vehicle.get_light_state()
+      right_blinker = bool(light_state & (0x1 << RIGHT_BLINKER_POS))
+      left_blinker = bool(light_state & (0x1 << LEFT_BLINKER_POS))
+      print("Blinkers (l/r):", left_blinker, right_blinker)
+      if right_blinker and not left_blinker:
+        desire = 1  # desire: right
+      elif not right_blinker and left_blinker:
+        desire = 2  # desire: left
+      else:
+        desire = 0  # desire: forward
+      print("DESIRE:", desire, "=>", DESIRE[desire])
+
+      frame_id += 1
+      curr_time = time.time() - start_time
+      print("Current Time: %.2fs"%curr_time)
+      print()
+      if curr_time >= REC_TIME:
+        break
 
       world.tick()
   except KeyboardInterrupt:
@@ -383,11 +408,22 @@ def carla_main():
   
   print("[+] Time recorded: %.2f"%(time.time() - start_time))
 
-  # store log data
+
+  # save log data
+  assert len(FRAMES) == len(SEG_FRAMES) == len(POSES) == len(DESIRES)
+
   for f in FRAMES:
     out.write(f)
   print("FRAMES:", len(FRAMES))
   print("[+] Camera recordings saved at: ", out_path+"video.mp4")
+  
+  os.makedirs(out_path+"segmentation/", exist_ok=True)
+  for fid, sf in enumerate(tqdm(SEG_FRAMES)):
+    seg_out = out_path+"segmentation/"+str(fid)+".png"
+    Image.fromarray(sf).save(seg_out)
+  print("SEG_FRAMES:", len(SEG_FRAMES))
+  print("[+] Semantic images saved at: ", seg_out)
+
   poses = np.array(POSES)
   print("POSES:", poses.shape)
   np.save(plog_poses, poses)
