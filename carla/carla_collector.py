@@ -1,418 +1,588 @@
-#!/usr/bin/env python3
-import random
-import math
-import glob
-import sys
 import os
-import time
-import cv2
-import numpy as np
-from multiprocessing import Process, Queue
-from threading import Thread
-
-"""
-try:
-    sys.path.append(glob.glob('/opt/carla-simulator/PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
-        sys.version_info.major,
-        sys.version_info.minor,
-        'linux-x86_64'))[0])
-except IndexError as e:
-  print("index error", e)
-"""
-
+import random
+from queue import Queue, Empty
 
 import carla
+import cv2
+import numpy as np
 
-# TODO: add traffic and pedestrians
+from carla_config import *
+from helpers import *
+from hevc_writer import HEVCWriter
 
-# EXAMPLE RUN: OUT_PATH="../collected_data/23/" MAP=2 ./carla_collector.py
 
-FRAMES = []
-POSES = []
-DESIRES = []
+OUT_PATH = os.getenv("OUT_PATH")
+if OUT_PATH is None:
+  print("Usage: OUT_PATH=<output_path> MAP=<map_idx> python carla_collector.py")
+  raise SystemExit(1)
+os.makedirs(OUT_PATH, exist_ok=True)
 
-IMG_WIDTH = 1164
-IMG_HEIGHT = 874
-REC_TIME = 60       # recording length in seconds
+RENDER = int(os.getenv("RENDER", 0))
 
-N_VEHICLES = 50     # number of vehicles spawned in the map
-N_PEDESTRIANS = 100 # number of pedestrians spawned in the map
+MAP = int(os.getenv("MAP", 0))
+curr_map = MAPS[MAP]
 
-DESIRE = {0: "forward",
-          1: "right",
-          2: "left"}
-# in carla.LightState enum, the 4th and 5th bit represent the blinkers (on/off)
-RIGHT_BLINKER_POS = 4
-LEFT_BLINKER_POS = 5
+WEATHER_KEY = os.getenv("WEATHER", "CloudyNoon")
+WEATHER = WEATHERS[WEATHER_KEY]
 
-# handle output directories
-out_path = os.getenv("OUT_PATH")
-if out_path == None:
-  print("Need to specify OUT_PATH")
-  exit(1)
-if not os.path.exists(out_path):
-  os.mkdir(out_path)
-plog_poses = out_path+"poses.npy"
-plog_desires = out_path+"desires.npy"
+VIDEO_ENCODER = os.getenv("VIDEO_ENCODER", "libx265")
+VIDEO_CRF = int(os.getenv("VIDEO_CRF", 23))
+VIDEO_PRESET = os.getenv("VIDEO_PRESET", "medium")
 
-RENDER = os.getenv("RENDER")
-if RENDER is None or RENDER == "True":
-  RENDER = True
-else:
-  RENDER = False
 
-map_idx = os.getenv("MAP")
-if map_idx == None:
-  print("Using default map Town01")
-  print("""
-  List of Towns:
-  Town01
-  Town02
-  Town03
-  Town04
-  Town05
-  Town06
-  Town07
-  Town08
-  Town09
-  Town10
-  Town11
-  Town12
-  Just give MAP=<index of town>
-  """)
-  map_idx = 0
-else:
-  map_idx = int(map_idx) - 1
+PLOG_POSES = os.path.join(OUT_PATH, "poses.npy")
+PLOG_DESIRES = os.path.join(OUT_PATH, "desires.npy")
+PLOG_STEERING = os.path.join(OUT_PATH, "steering_angles.npy")
+PLOG_SPEEDS = os.path.join(OUT_PATH, "speeds.npy")
+PLOG_IMU = os.path.join(OUT_PATH, "imu.npy")
+PLOG_GNSS = os.path.join(OUT_PATH, "gnss.npy")
 
-"""
-Town01  A small, simple town with a river and several bridges.
-Town02	A small simple town with a mixture of residential and commercial buildings.
-Town03	A larger, urban map with a roundabout and large junctions.
-Town04	A small town embedded in the mountains with a special "figure of 8" infinite highway.
-Town05	Squared-grid town with cross junctions and a bridge. It has multiple lanes per direction. Useful to perform lane changes.
-Town06	Long many lane highways with many highway entrances and exits. It also has a Michigan left.
-Town07	A rural environment with narrow roads, corn, barns and hardly any traffic lights.
+VIDEO_PATH = os.path.join(OUT_PATH, "video.hevc")
+SEGMENTATION_PATH = os.path.join(OUT_PATH, "segmentation.npy")
 
-NOTE: maps >7 not found
-Town08	Secret "unseen" town used for the Leaderboard challenge
-Town09	Secret "unseen" town used for the Leaderboard challenge
-Town10	A downtown urban environment with skyscrapers, residential buildings and an ocean promenade.
-Town11	A Large Map that is undecorated. Serves as a proof of concept for the Large Maps feature.
-Town12	A Large Map with numerous different regions, including high-rise, residential and rural environments.
-"""
-maps = [
-  "Town01",
-  "Town02",
-  "Town03",
-  "Town04",
-  "Town05",
-  "Town06",
-  "Town07",
-  ]
-curr_map = maps[map_idx]
 
-weather = {
-  "ClearNoon": carla.WeatherParameters.ClearNoon,
-  "CloudyNoon": carla.WeatherParameters.CloudyNoon,
-  "WetNoon": carla.WeatherParameters.WetNoon,
-  "WetCloudyNoon": carla.WeatherParameters.WetCloudyNoon,
-  "MidRainyNoon": carla.WeatherParameters.MidRainyNoon,
-  "HardRainNoon": carla.WeatherParameters.HardRainNoon,
-  "SoftRainNoon": carla.WeatherParameters.SoftRainNoon,
-  "ClearSunset": carla.WeatherParameters.ClearSunset,
-  "CloudySunset": carla.WeatherParameters.CloudySunset,
-  "WetSunset": carla.WeatherParameters.WetSunset,
-  "WetCloudySunset": carla.WeatherParameters.WetCloudySunset,
-  "MidRainSunset": carla.WeatherParameters.MidRainSunset,
-  "HardRainSunset": carla.WeatherParameters.HardRainSunset,
-  "SoftRainSunset": carla.WeatherParameters.SoftRainSunset,
-  "ClearNight": carla.WeatherParameters(cloudiness=0.0,
-                                   precipitation=0.0,
-                                   sun_altitude_angle=-20.0),
-  "CloudyNight": carla.WeatherParameters(cloudiness=80.0,
-                                   precipitation=0.0,
-                                   sun_altitude_angle=-20.0),
-  "HardRainNight": carla.WeatherParameters(cloudiness=80.0,
-                                   precipitation=50.0,
-                                   sun_altitude_angle=-20.0),
-  "SoftRainNight": carla.WeatherParameters(cloudiness=80.0,
-                                   precipitation=25.0,
-                                   sun_altitude_angle=-20.0)
-}
-WEATHER_KEY = os.getenv("WEATHER")
-if WEATHER_KEY is None:
-  print("[+] Using default weather:", "CloudyNoon")
-  WEATHER = weather["CloudyNoon"]
-else:
-  WEATHER = weather[WEATHER_KEY]
-
-# actors lists
 actor_list = []
 vehicles = []
 walkers = []
+walker_controllers = []
 
 
-# TODO: display info on screen but not on the frame that we record (we need that clean)
-def render_img(img):
-  cv2.imshow(out_path, img)
-  if cv2.waitKey(1) & 0xFF == 27: pass
+def get_sensor_for_frame(queue, target_frame, timeout=5.0):
+  while True:
+    # print(f"waiting target={target_frame}, qsize={queue.qsize()}")
 
-
-# TODO: move vehicle in here
-class Car:
-  def __init__(self):
-    # TODO: properly init car components
-    #self.front_camera = np.zeros((IMG_HEIGHT, IMG_WIDTH, 3))
-    self.front_camera = None
-    self.pose = None
-    self.gyro = None
-
-  def process_img(self, img, location, rotation, desire):
-    img = np.array(img.raw_data)
-    img = img.reshape((IMG_HEIGHT, IMG_WIDTH, 4))
-    img = img[:, :, :3]
-
-    if location is not None and rotation is not None and desire is not None:
-      FRAMES.append(img)
-      POSES.append((location, rotation))
-      DESIRES.append(desire)
-    self.front_camera = img
-
-  def process_imu(self, imu):
-    self.bearing_deg = math.degrees(imu.compass)  # radians
-    self.acceleration = [imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z] # m/s**2
-    self.gyro = [imu.gyroscope.x, imu.gyroscope.y, imu.gyroscope.z] # radians
-
-  def process_gps(self, gps):
-    # TODO: update this
-    self.gps_location = {
-      "timestamp": int(time.time() * 1000),
-      "accuracy": 1.0,
-      "speed_accuracy": 0.1,
-      "bearing_accuracy_deg": 0.1,
-      "bearing_deg": self.bearing_deg,
-      "latitude": gps.latitude,
-      "longitude": gps.longitude,
-      "altitude": gps.altitude,
-      "speed": 0,
-    }
-
-
-# TODO: using carla's locations instead of GNSS, visual odometry, etc is just a temp hack
-def carla_main():
-  #fourcc = cv2.CV_FOURCC(*'MP4V')
-  out = cv2.VideoWriter(out_path+"video.mp4", cv2.VideoWriter_fourcc('M','J','P','G'), 20.0, (IMG_WIDTH, IMG_HEIGHT))
-  location, rotation, desire = None, None, None
-
-  # setup
-  client = carla.Client('localhost', 2000)
-  client.set_timeout(2.0)  # seconds
-  #world = client.get_world()
-  print("Loading Map:", curr_map)
-  world = client.load_world(curr_map)
-  world.set_weather(WEATHER)
-  bp_lib = world.get_blueprint_library()
-  car = Car()
-  
-  # spawn traffic
-  traffic_manager = client.get_trafficmanager()
-  traffic_manager.set_global_distance_to_leading_vehicle(2.5)
-  traffic_manager.set_respawn_dormant_vehicles(True)
-  print("Spawned Traffic Manager")
-
-  for i in range(N_VEHICLES):
-    bp = random.choice(bp_lib.filter('vehicle'))
     try:
-      spawn_point = random.choice(world.get_map().get_spawn_points())
-      vhcl = world.spawn_actor(bp, spawn_point)
-      vhcl.set_autopilot(True)
-      #traffic_manager.update_vehicle_lights(vhcl, True)
-      vehicles.append(vhcl)
-    except:
+      data = queue.get(timeout=timeout)
+    except Empty:
+      raise RuntimeError(f"Timed out waiting for sensor frame {target_frame}")
+
+    # print(f"target={target_frame}, received={data.frame}, timestamp={data.timestamp}")
+
+    if data.frame == target_frame:
+      return data
+
+    if data.frame > target_frame:
+      raise RuntimeError(f"Sensor jumped past requested frame {target_frame} -> {data.frame}")
+
+
+def carla_segmentation_to_labels(image):
+  array = np.frombuffer(image.raw_data, dtype=np.uint8)
+  array = array.reshape((image.height, image.width, 4))
+  return array[:, :, 2].copy()
+
+def spawn_traffic(world, traffic_manager):
+  bp_lib = world.get_blueprint_library()
+  spawn_points = world.get_map().get_spawn_points()
+
+  random.shuffle(spawn_points)
+
+  for spawn_point in spawn_points[:N_VEHICLES]:
+    bp = random.choice(bp_lib.filter("vehicle.*"))
+
+    vehicle = world.try_spawn_actor(bp, spawn_point)
+
+    if vehicle is None:
       continue
-  print(len(vehicles), "Vehicles Spawned")
 
-  # spawn pedestrians
-  blueprintWalkers = bp_lib.filter("walker.pedestrian.*")
+    vehicle.set_autopilot(
+      True,
+      traffic_manager.get_port(),
+    )
 
-  spawn_points = []
-  for i in range(N_PEDESTRIANS):
-    spawn_point = carla.Transform()
-    spawn_point.location = world.get_random_location_from_navigation()
-    if spawn_point.location != None:
-      spawn_points.append(spawn_point)
+    vehicles.append(vehicle)
+    actor_list.append(vehicle)
 
+  print(f"[*] Spawned {len(vehicles)} traffic vehicles")
+
+
+def spawn_pedestrians(client, world):
+  blueprint_library = world.get_blueprint_library()
+  walker_blueprints = blueprint_library.filter("walker.pedestrian.*")
+
+  walker_spawn_points = []
+  for _ in range(N_PEDESTRIANS):
+    location = world.get_random_location_from_navigation()
+    if location is None:
+      continue
+    walker_spawn_points.append(carla.Transform(location))
+
+  # Spawn walkers
   batch = []
-  for spawn_point in spawn_points:
-    bp_walker = random.choice(blueprintWalkers)
-    batch.append(carla.command.SpawnActor(bp_walker, spawn_point))
-  
-  results = client.apply_batch_sync(batch, True)
-  for i in range(len(results)):
-    if results[i].error:
-      print(results[i].error)
-    else:
-      walkers.append({"id": results[i].actor_id})
+  for spawn_point in walker_spawn_points:
+    bp = random.choice(walker_blueprints)
+    if bp.has_attribute("is_invincible"):
+      bp.set_attribute("is_invincible", "false")
+    batch.append(carla.command.SpawnActor(bp, spawn_point))
 
+  results = client.apply_batch_sync(batch, False)
+  walker_ids = []
+  for result in results:
+    if result.error:
+      print(f"[!] Walker spawn error: {result.error}")
+      continue
+    walker_ids.append(result.actor_id)
+
+  # Allow newly spawned walkers to become available.
+  world.tick()
+
+  # Spawn AI controllers
+  controller_bp = blueprint_library.find("controller.ai.walker")
   batch = []
-  walker_controller_bp = bp_lib.find("controller.ai.walker")
-  for i in range(len(walkers)):
-    batch.append(carla.command.SpawnActor(walker_controller_bp, carla.Transform(), walkers[i]["id"]))
-  
-  results = client.apply_batch_sync(batch, True)
-  for i in range(len(results)):
-    if results[i].error:
-      print(results[i].error)
-    else:
-      walkers[i]["con"] = results[i].actor_id
+  for walker_id in walker_ids:
+    batch.append(carla.command.SpawnActor(controller_bp, carla.Transform(), walker_id))
 
-  for i in range(len(walkers)):
-    actor_list.append(walkers[i])
-
-  # spawn main car
-  vehicle_bp = bp_lib.filter('vehicle.tesla.*')[1]
-  spawn_point = random.choice(world.get_map().get_spawn_points())
-  vehicle = world.spawn_actor(vehicle_bp, spawn_point)
-  print("Main Car Spawned")
-
-  # make tires less slippery
-  wheel_control = carla.WheelPhysicsControl(tire_friction=5)
-  physics_control = vehicle.get_physics_control()
-  physics_control.mass = 2326
-  physics_control.wheels = [wheel_control]*4
-  physics_control.torque_curve = [[20.0, 500.0], [5000.0, 500.0]]
-  physics_control.gear_switch_time = 0.0
-  vehicle.apply_physics_control(physics_control)
-
-  # temp controls
-  #vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=0.0))
-  vehicle.set_autopilot(True)
-  actor_list.append(vehicle)
-
-  # spawn camera
-  camera_bp = bp_lib.find('sensor.camera.rgb')
-  camera_bp.set_attribute('image_size_x', f'{IMG_WIDTH}')
-  camera_bp.set_attribute('image_size_y', f'{IMG_HEIGHT}')
-  camera_bp.set_attribute('fov', '70')
-  camera_bp.set_attribute('sensor_tick', '0.05')
-  spawn_point  = carla.Transform(carla.Location(x=0.8, z=1.13))  # dashcam location
-  #spawn_point  = carla.Transform(carla.Location(x=-8., z=2.)) # NOTE: third-person camera view for debugging
-  camera = world.spawn_actor(camera_bp, spawn_point, attach_to=vehicle)
-  actor_list.append(camera_bp)
-  camera.listen(lambda img: car.process_img(img, location, rotation, desire))
-  print("Camera Spawned")
-
-  # spawn IMU
-  imu_bp = bp_lib.find("sensor.other.imu")
-  imu = world.spawn_actor(imu_bp, spawn_point, attach_to=vehicle)
-  imu.listen(lambda imu: car.process_imu(imu))
-  print("IMU Spawned")
-
-  # spawn GPS
-  gps_bp = bp_lib.find("sensor.other.gnss")
-  gps = world.spawn_actor(gps_bp, spawn_point, attach_to=vehicle)
-  gps.listen(lambda gps: car.process_gps(gps))
-  print("GPS Spawned")
-
-  # Enable synchronous mode
-  settings = world.get_settings()
-  settings.synchronous_mode = True 
-  settings.no_rendering_mode = False
-  settings.fixed_delta_seconds = 0.05
-  world.apply_settings(settings)
-  traffic_manager.set_synchronous_mode(True)
+  controller_results = client.apply_batch_sync(batch, False)
+  controller_ids = []
+  valid_walker_ids = []
+  for walker_id, result in zip(walker_ids, controller_results):
+    if result.error:
+      print(f"[!] Walker controller spawn error: {result.error}")
+      continue
+    valid_walker_ids.append(walker_id)
+    controller_ids.append(result.actor_id)
 
   world.tick()
 
-  # mainloop
-  frame_id = 0
-  start_time = time.time()
+  # Get actual Actor objects
+  for walker_id in valid_walker_ids:
+    walker = world.get_actor(walker_id)
+    if walker is not None:
+      walkers.append(walker)
+      actor_list.append(walker)
+
+  for controller_id in controller_ids:
+    controller = world.get_actor(controller_id)
+    if controller is None:
+      continue
+    walker_controllers.append(controller)
+    actor_list.append(controller)
+
+  for controller in walker_controllers:
+    controller.start()
+    destination = world.get_random_location_from_navigation()
+    if destination is not None:
+      controller.go_to_location(destination)
+    controller.set_max_speed(random.uniform(1.0, 2.0))
+
+  # Allows some pedestrians to cross roads.
+  world.set_pedestrians_cross_factor(0.1)
+  print(f"[*] Spawned {len(walkers)} pedestrians with {len(walker_controllers)} controllers")
+
+
+def configure_vehicle_physics(vehicle):
+  physics_control = vehicle.get_physics_control()
+
+  physics_control.mass = 2326
+
+  # Do NOT replace the WheelPhysicsControl objects completely.
+  # Keep their existing radius, damping, brake values, etc.
+  for wheel in physics_control.wheels:
+    wheel.tire_friction = 5.0
+
+  physics_control.torque_curve = [
+    carla.Vector2D(20.0, 500.0),
+    carla.Vector2D(5000.0, 500.0),
+  ]
+  physics_control.gear_switch_time = 0.0
+  vehicle.apply_physics_control(physics_control)
+
+
+def spawn_ego_vehicle(world, traffic_manager):
+  bp_lib = world.get_blueprint_library()
   try:
-    print("Starting mainloop ...")
-    # TODO: collect steering angles, throttle, brakes and speed as well
-    while True:
-      traffic_manager.update_vehicle_lights(vehicle, True)
-      traffic_manager.auto_lane_change(vehicle, True)
-      for i in range(len(vehicles)):
-        traffic_manager.update_vehicle_lights(vehicles[i], True)
-        traffic_manager.auto_lane_change(vehicles[i], True)
+    vehicle_bp = bp_lib.find("vehicle.tesla.model3")
+  except RuntimeError:
+    vehicle_bp = random.choice(bp_lib.filter("vehicle.tesla.*"))
 
-      lx,ly,lz = vehicle.get_location().x, vehicle.get_location().y ,vehicle.get_location().z
-      #rot = vehicle.get_transform().get_forward_vector()
-      #rx, ry, rz = rot.x, rot.y, rot.z
-      location = [lx, ly, lz]
-      # TODO: use IMU to also get acceleration
-      if car.gyro is not None:
-        rotation = [car.gyro[0], car.gyro[1], car.gyro[2]]  # NOTE: IMU data could be noisy
+  spawn_points = world.get_map().get_spawn_points()
+  random.shuffle(spawn_points)
 
-      if car.front_camera is not None:
-        if RENDER:
-          render_img(car.front_camera)
-        print("[+] Frame: ", frame_id, "=>", car.front_camera.shape)
+  vehicle = None
+  for spawn_point in spawn_points:
+    vehicle = world.try_spawn_actor(vehicle_bp, spawn_point)
+    if vehicle is not None:
+      break
 
-        print("[+] Car Location: (x y z)=(", location, ")")
-        print("[+] Car Rotation: (x y z)=(", rotation, ")")
-        print("[->] IMU DATA => acceleration", car.acceleration, " : gyroscope", car.gyro)
-        print("[->] GNSS DATA => latitude", car.gps_location['latitude'],
-              " : longtitude", car.gps_location['longitude'],
-              " : altitude", car.gps_location['altitude'])
+  if vehicle is None:
+    raise RuntimeError("Could not spawn ego vehicle")
 
-        # get blinkers state => DESIRE
-        light_state = vehicle.get_light_state()
-        right_blinker = bool(light_state & (0x1 << RIGHT_BLINKER_POS))
-        left_blinker = bool(light_state & (0x1 << LEFT_BLINKER_POS))
-        print("Blinkers (l/r):", left_blinker, right_blinker)
-        if right_blinker and not left_blinker:
-          desire = 1  # desire: right
-        elif not right_blinker and left_blinker:
-          desire = 2  # desire: left
-        else:
-          desire = 0  # desire: forward
-        print("DESIRE:", desire, "=>", DESIRE[desire])
-
-        frame_id += 1
-        curr_time = time.time() - start_time
-        print("Current Time: %.2fs"%curr_time)
-        print()
-        if curr_time >= REC_TIME:
-          break
-
-      world.tick()
-  except KeyboardInterrupt:
-    print("[~] Stopped recording")
-  
-  print("[+] Time recorded: %.2f"%(time.time() - start_time))
-
-  # store log data
-  for f in FRAMES:
-    out.write(f)
-  print("FRAMES:", len(FRAMES))
-  print("[+] Camera recordings saved at: ", out_path+"video.mp4")
-  poses = np.array(POSES)
-  print("POSES:", poses.shape)
-  np.save(plog_poses, poses)
-  print("[+] Poses saved at:", plog_poses)
-  desires = np.array(DESIRES)
-  print("DESIRES:", desires.shape)
-  np.save(plog_desires, desires)
-  print("[+] Desires saved at:", plog_desires)
-
-  out.release()
+  configure_vehicle_physics(vehicle)
+  vehicle.set_autopilot(True, traffic_manager.get_port())
+  actor_list.append(vehicle)
+  print("[*] Ego vehicle spawned")
+  return vehicle
 
 
-if __name__ == '__main__':
-  # TODO: put this in a big loop that keeps collecting data for different files
-  print("Hello")
+def spawn_sensors(world, vehicle):
+  bp_lib = world.get_blueprint_library()
+
+  camera_queue = Queue()
+  segmentation_queue = Queue()
+  imu_queue = Queue()
+  gnss_queue = Queue()
+
+  sensor_transform = carla.Transform(
+    carla.Location(
+      x=0.8,
+      z=1.13,
+    )
+  )
+
+  # Camera
+  camera_bp = bp_lib.find("sensor.camera.rgb")
+  camera_bp.set_attribute("image_size_x", str(IMG_WIDTH))
+  camera_bp.set_attribute("image_size_y", str(IMG_HEIGHT))
+  camera_bp.set_attribute("fov", "70")
+  # camera_bp.set_attribute("sensor_tick", str(FIXED_DELTA_SECONDS))
+  camera_bp.set_attribute("sensor_tick", "0.0")
+  camera = world.spawn_actor(camera_bp, sensor_transform, attach_to=vehicle)
+  camera.listen(camera_queue.put)
+  actor_list.append(camera)
+  print("[*] Camera spawned")
+
+  # Semantic segmentation camera, aligned with RGB camera.
+  segmentation_bp = bp_lib.find("sensor.camera.semantic_segmentation")
+  segmentation_bp.set_attribute("image_size_x", str(IMG_WIDTH))
+  segmentation_bp.set_attribute("image_size_y", str(IMG_HEIGHT))
+  segmentation_bp.set_attribute("fov", "70")
+  segmentation_bp.set_attribute("sensor_tick", "0.0")
+  segmentation_camera = world.spawn_actor(segmentation_bp, sensor_transform, attach_to=vehicle)
+  segmentation_camera.listen(segmentation_queue.put)
+  actor_list.append(segmentation_camera)
+  print("[*] Segmentation camera spawned")
+
+  # IMU
+  imu_bp = bp_lib.find("sensor.other.imu")
+  # imu_bp.set_attribute("sensor_tick", str(FIXED_DELTA_SECONDS))
+  imu_bp.set_attribute("sensor_tick", "0.0.")
+  imu = world.spawn_actor(imu_bp, sensor_transform, attach_to=vehicle)
+  imu.listen(imu_queue.put)
+  actor_list.append(imu)
+  print("[*] IMU spawned")
+
+  # GNSS
+  gnss_bp = bp_lib.find("sensor.other.gnss")
+  # gnss_bp.set_attribute("sensor_tick", str(FIXED_DELTA_SECONDS))
+  gnss_bp.set_attribute("sensor_tick", "0.0")
+  gnss = world.spawn_actor(gnss_bp, sensor_transform, attach_to=vehicle)
+  gnss.listen(gnss_queue.put)
+  actor_list.append(gnss)
+  print("[*] GNSS spawned")
+
+  return (
+    camera,
+    segmentation_camera,
+    imu,
+    gnss,
+    camera_queue,
+    segmentation_queue,
+    imu_queue,
+    gnss_queue,
+  )
+
+
+def init_carla():
+  client = carla.Client("localhost", 2000)
+  client.set_timeout(10.0)
+  print(f"[+] Client connected")
+
+  print(f"[*] Loading map: {curr_map}")
+  world = client.load_world(curr_map)
+  world.set_weather(WEATHER)
+
+  original_settings = world.get_settings()
+
+  # Configure synchronous mode BEFORE collecting sensor data.
+  settings = world.get_settings()
+  settings.synchronous_mode = True
+  settings.no_rendering_mode = False
+  settings.fixed_delta_seconds = FIXED_DELTA_SECONDS
+  world.apply_settings(settings)
+
+  traffic_manager = client.get_trafficmanager()
+  traffic_manager.set_synchronous_mode(True)
+  traffic_manager.set_global_distance_to_leading_vehicle(2.5)
+  traffic_manager.set_respawn_dormant_vehicles(True)
+
+  print("[*] Synchronous simulation enabled")
+
+  spawn_traffic(world, traffic_manager)
+  spawn_pedestrians(client, world)
+  vehicle = spawn_ego_vehicle(world, traffic_manager)
+  sensors = spawn_sensors(world, vehicle)
+
+  return (
+    client,
+    world,
+    traffic_manager,
+    vehicle,
+    original_settings,
+    sensors,
+  )
+
+
+def get_desire(vehicle):
+  light_state = vehicle.get_light_state()
+  right_blinker = bool(light_state & (1 << RIGHT_BLINKER_POS))
+  left_blinker = bool(light_state & (1 << LEFT_BLINKER_POS))
+
+  if right_blinker and not left_blinker:
+    return 1
+  if left_blinker and not right_blinker:
+    return 2
+  return 0
+
+
+def get_speed(vehicle):
+  velocity = vehicle.get_velocity()
+  # m/s
+  return np.sqrt(
+    velocity.x ** 2 +
+    velocity.y ** 2 +
+    velocity.z ** 2
+  )
+
+
+def mainloop(world, vehicle, traffic_manager, camera_queue, segmentation_queue, imu_queue, gnss_queue, video_writer):
+  poses = []
+  desires = []
+  steering_angles = []
+  speeds = []
+  imu_data = []
+  gnss_data = []
+
+  total_frames = int(REC_TIME / FIXED_DELTA_SECONDS)
+  segmentation_data = np.lib.format.open_memmap(
+    SEGMENTATION_PATH,
+    mode="w+",
+    dtype=np.uint8,
+    shape=(total_frames, IMG_HEIGHT, IMG_WIDTH),
+  )
+  print(f"[*] Recording {REC_TIME}s = {total_frames} frames at {FPS} FPS")
+  for frame_index in range(total_frames):
+    print(f"[*] Frame {frame_index+1}/{total_frames}")
+
+    # Advance the entire simulation exactly one fixed step.
+    carla_frame = world.tick()
+
+    # Get data generated by THAT simulation frame.
+    image = get_sensor_for_frame(camera_queue, carla_frame)
+    segmentation_image = get_sensor_for_frame(segmentation_queue, carla_frame)
+    imu = get_sensor_for_frame(imu_queue, carla_frame)
+    gnss = get_sensor_for_frame(gnss_queue, carla_frame)
+    frame = carla_image_to_bgr(image)
+    segmentation_data[frame_index] = carla_segmentation_to_labels(segmentation_image)
+
+    # Video
+    video_writer.write(frame)
+    if RENDER:
+      render_img(frame)
+
+    # Vehicle state
+    transform = vehicle.get_transform()
+    location = transform.location
+    rotation = transform.rotation
+    control = vehicle.get_control()
+    desire = get_desire(vehicle)
+    speed = get_speed(vehicle)
+    poses.append([
+      location.x,
+      location.y,
+      location.z,
+      rotation.roll,
+      rotation.pitch,
+      rotation.yaw,
+    ])
+
+    desires.append(desire)
+    steering_angles.append(control.steer)
+    speeds.append(speed)
+
+    # IMU
+    imu_data.append([
+      imu.accelerometer.x,
+      imu.accelerometer.y,
+      imu.accelerometer.z,
+      imu.gyroscope.x,
+      imu.gyroscope.y,
+      imu.gyroscope.z,
+      imu.compass,
+    ])
+
+    # GNSS
+    gnss_data.append([
+      gnss.latitude,
+      gnss.longitude,
+      gnss.altitude,
+    ])
+
+    if frame_index % FPS == 0:
+      print(
+        f"CARLA frame {carla_frame} "
+        f"| speed={speed:.2f} m/s "
+        f"| steer={control.steer:.3f} "
+        f"| desire={DESIRE[desire]}"
+      )
+
+  segmentation_data.flush()
+
+  return {
+    "poses": np.asarray(poses, dtype=np.float32),
+    "desires": np.asarray(desires, dtype=np.uint8),
+    "steering_angles": np.asarray(steering_angles, dtype=np.float32),
+    "speeds": np.asarray(speeds, dtype=np.float32),
+    "imu": np.asarray(imu_data, dtype=np.float32),
+    "gnss": np.asarray(gnss_data, dtype=np.float64),
+  }
+
+
+def save_data(data):
+  np.save(PLOG_POSES, data["poses"])
+  np.save(PLOG_DESIRES, data["desires"])
+  np.save(PLOG_STEERING, data["steering_angles"])
+  np.save(PLOG_SPEEDS, data["speeds"])
+  np.save(PLOG_IMU, data["imu"])
+  np.save(PLOG_GNSS, data["gnss"])
+  print(f"[+] Video:             {VIDEO_PATH}")
+  print(f"[+] Segmentation:      {SEGMENTATION_PATH}")
+  print(f"[+] Poses:             {PLOG_POSES}")
+  print(f"[+] Desires:           {PLOG_DESIRES}")
+  print(f"[+] Steering angles:   {PLOG_STEERING}")
+  print(f"[+] Speeds:            {PLOG_SPEEDS}")
+  print(f"[+] IMU:               {PLOG_IMU}")
+  print(f"[+] GNSS:              {PLOG_GNSS}")
+
+
+def cleanup(world, traffic_manager, original_settings):
+  print("[*] Cleaning up CARLA actors")
+
+  # Stop walker AI before destroying controllers.
+  for controller in walker_controllers:
+    try:
+      if controller.is_alive:
+        controller.stop()
+    except RuntimeError:
+      pass
+
+  # Stop sensors before destruction.
+  for actor in actor_list:
+    try:
+      if actor.is_alive and actor.type_id.startswith("sensor."):
+        actor.stop()
+    except RuntimeError:
+      pass
+
+  for actor in reversed(actor_list):
+    try:
+      if actor.is_alive:
+        actor.destroy()
+    except RuntimeError:
+      pass
+
   try:
-    carla_main()
-  except RuntimeError as re:
-    print("[-]", re)
-    print("Restarting ...")
-  finally:
-    print("destroying all actors")
-    for a in actor_list:
-      a.destroy()
-    for v in vehicles:
-      v.destroy()
+    traffic_manager.set_synchronous_mode(False)
+  except RuntimeError:
+    pass
+
+  try:
+    world.apply_settings(original_settings)
+  except RuntimeError:
+    pass
+
+  if RENDER:
     cv2.destroyAllWindows()
-    print('Done')
+
+  print("[+] Done")
+
+
+def carla_main():
+  print(f"[*] Weather: {WEATHER_KEY}")
+  print(f"[*] Output: {OUT_PATH}")
+
+  client = None
+  world = None
+  traffic_manager = None
+  original_settings = None
+  video_writer = None
+
+  try:
+    (
+      client,
+      world,
+      traffic_manager,
+      vehicle,
+      original_settings,
+      sensors,
+    ) = init_carla()
+
+    (
+      camera,
+      segmentation_camera,
+      imu,
+      gnss,
+      camera_queue,
+      segmentation_queue,
+      imu_queue,
+      gnss_queue,
+    ) = sensors
+
+    # One initialization frame lets all attached sensors become active.
+    # world.tick()
+    init_frame = world.tick()
+    print(f"[*] Initializing sensors at frame {init_frame}")
+    get_sensor_for_frame(camera_queue, init_frame)
+    get_sensor_for_frame(segmentation_queue, init_frame)
+    get_sensor_for_frame(imu_queue, init_frame)
+    get_sensor_for_frame(gnss_queue, init_frame)
+    print("[*] Sensors synchronized")
+
+    video_writer = HEVCWriter(
+      VIDEO_PATH,
+      IMG_WIDTH,
+      IMG_HEIGHT,
+      FPS,
+      encoder=VIDEO_ENCODER,
+      crf=VIDEO_CRF,
+      preset=VIDEO_PRESET,
+    )
+
+    data = mainloop(
+      world,
+      vehicle,
+      traffic_manager,
+      camera_queue,
+      segmentation_queue,
+      imu_queue,
+      gnss_queue,
+      video_writer,
+    )
+
+    video_writer.close()
+    video_writer = None
+
+    save_data(data)
+
+  except KeyboardInterrupt:
+    print("[~] Recording interrupted")
+
+  finally:
+    if video_writer is not None:
+      try:
+        video_writer.close()
+      except Exception as e:
+        print(f"[!] Error closing video writer: {e}")
+
+    if (
+      world is not None
+      and traffic_manager is not None
+      and original_settings is not None
+    ):
+      cleanup(
+        world,
+        traffic_manager,
+        original_settings,
+      )
+
+
+if __name__ == "__main__":
+  carla_main()

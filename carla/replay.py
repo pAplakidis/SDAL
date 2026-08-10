@@ -26,7 +26,7 @@ from util import *
 
 data_path = os.getenv("DATA_PATH")    # root dir
 video_path = data_path+"video.mp4"
-plog_poses = data_path + "poses.npy"  # global poses
+PLOG_POSES = data_path + "poses.npy"  # global poses
 fpath_log = data_path + "frame_paths.npy"
 desire_dir = data_path + "desires.npy"
 
@@ -51,7 +51,7 @@ if __name__ == '__main__':
   if RENDER:
     renderer = Renderer3D(RW, RH)
   cap = cv2.VideoCapture(video_path)
-  poses = np.load(plog_poses)
+  poses = np.load(PLOG_POSES)
   local_poses, local_path, local_orientations = get_relative_poses(poses)
   desires = one_hot_encode(np.load(desire_dir))
 
