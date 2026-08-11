@@ -5,7 +5,7 @@ data/
 segmentation/models/
 segmentation/data/
 segmentation/runs/
-carla/*.png
+sim/*.png
 
 AGENTS.md
 graphify-out/

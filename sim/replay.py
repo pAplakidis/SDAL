@@ -6,12 +6,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from display3d_open3d import Display3D
+from display3d import Display3D
 from helpers import *
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_PATH = (SCRIPT_DIR.parent / "data" / "1").resolve()
+
+# TODO: 3D display camera should follow current pose + draw only current pose frustum
 
 
 def env_bool(name, default=True):

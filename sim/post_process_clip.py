@@ -5,31 +5,39 @@ import time
 import numpy as np
 from pathlib import Path
 
-from carla_config import FIXED_DELTA_SECONDS
-from helpers import *
-from display3d_open3d import Display3D
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
   sys.path.insert(0, str(REPO_ROOT))
 
+from carla_config import FIXED_DELTA_SECONDS, IMG_WIDTH, IMG_HEIGHT
+from helpers import *
+from display3d import Display3D
 from utils.coordinates import LocalCoord
+from visual_odometry import VisualOdometry, draw_keypoints, pose_to_display_transform
 
-# TODO: visual odometry (copy SLAM)
 # TODO: sensor fusion with Kalman filter
+# TODO: time for performance and latency analysis
 # TODO: compare error with ground truth + save predicted poses
 
-# env vars
 DATA_PATH = os.getenv("DATA_PATH", None)
 if DATA_PATH is None:
   print("Usage: DATA_PATH=<path_to_data> python post_process_clip.py")
 
-RENDER = os.getenv("RENDER", 1) # TODO: default 0 when done
-ODOMETRY_DT = float(os.getenv("ODOMETRY_DT", FIXED_DELTA_SECONDS))
-ODOMETRY_WHEELBASE_M = float(os.getenv("ODOMETRY_WHEELBASE_M", 2.875))
-ODOMETRY_MAX_STEER_DEG = float(os.getenv("ODOMETRY_MAX_STEER_DEG", 35.0))
-IMU_GRAVITY_MPS2 = float(os.getenv("IMU_GRAVITY_MPS2", 9.81))
-IMU_ACCEL_MAX_MPS2 = float(os.getenv("IMU_ACCEL_MAX_MPS2", 100.0))
+RENDER = os.getenv("RENDER", "1").lower() not in ("0", "false", "no", "off", "")
+
+# Edit these constants directly when tuning post-processing.
+ODOMETRY_DT = FIXED_DELTA_SECONDS
+ODOMETRY_WHEELBASE_M = 2.875
+ODOMETRY_MAX_STEER_DEG = 35.0
+IMU_GRAVITY_MPS2 = 9.81
+IMU_ACCEL_MAX_MPS2 = 100.0
+VO_ENABLED = True
+VO_IMAGE_SCALE = 0.5
+VO_MAX_FEATURES = 2000
+VO_MATCH_RATIO = 0.75
+VO_MAX_HAMMING_DISTANCE = 32
+VO_MIN_INLIERS = 20
+VO_RANSAC_THRESHOLD = 1.0
 
 
 def load_array(path, mmap_mode=None):
@@ -199,6 +207,17 @@ if __name__ == "__main__":
   print(f"[*] Replay data: {DATA_PATH}")
   data = load_data(DATA_PATH)
 
+  cap = cv2.VideoCapture(data["video_path"])
+  if not cap.isOpened():
+    raise RuntimeError(f"Could not open HEVC video: {data['video_path']}")
+
+  total_frames = frame_count(cap, data)
+  max_frames = os.getenv("MAX_FRAMES")
+  if max_frames is not None:
+    total_frames = min(total_frames, int(max_frames))
+  lookahead = int(os.getenv("LOOKAHEAD", DEFAULT_LOOKAHEAD))
+  print(f"[*] Total replay frames: {total_frames}")
+
   display_poses, display_path, pose_scale = normalize_poses(zero_start_pose_stream(data["poses"]))
   print(f"[*] Pose scale: {pose_scale:.6f} display units per CARLA unit")
 
@@ -214,16 +233,29 @@ if __name__ == "__main__":
   gnss_display_poses, gnss_display_path, gnss_pose_scale = normalize_poses(gnss_poses)
   print(f"[*] GNSS pose scale: {gnss_pose_scale:.6f} display units per GNSS unit")
 
-  cap = cv2.VideoCapture(data["video_path"])
-  if not cap.isOpened():
-    raise RuntimeError(f"Could not open HEVC video: {data['video_path']}")
+  vo_display_poses = []
+  if VO_ENABLED:
+    video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if video_width <= 0 or video_height <= 0:
+      video_width, video_height = IMG_WIDTH, IMG_HEIGHT
+    fx, fy, cx, cy = camera_intrinsics(video_width, video_height, CAMERA_FOV_DEG)
+    camera_matrix = np.array([
+      [fx, 0.0, cx],
+      [0.0, fy, cy],
+      [0.0, 0.0, 1.0],
+    ], dtype=np.float64)
 
-  total_frames = frame_count(cap, data)
-  max_frames = os.getenv("MAX_FRAMES")
-  if max_frames is not None:
-    total_frames = min(total_frames, int(max_frames))
-  lookahead = int(os.getenv("LOOKAHEAD", DEFAULT_LOOKAHEAD))
-  print(f"[*] Total replay frames: {total_frames}")
+    vo = VisualOdometry(
+      camera_matrix,
+      image_scale=VO_IMAGE_SCALE,
+      max_features=VO_MAX_FEATURES,
+      ratio=VO_MATCH_RATIO,
+      max_hamming_distance=VO_MAX_HAMMING_DISTANCE,
+      min_inliers=VO_MIN_INLIERS,
+      ransac_threshold=VO_RANSAC_THRESHOLD,
+    )
+    print("[*] Visual odometry enabled")
 
   display_3d = None
   if RENDER:
@@ -238,11 +270,19 @@ if __name__ == "__main__":
 
       print_frame_data(frame_idx, data)
 
+      if VO_ENABLED:
+        speed = None if frame_idx == 0 else data["speeds"][frame_idx - 1]
+        vo_pose, vo_debug = vo.step(frame, speed_mps=speed, dt=ODOMETRY_DT)
+        vo_display_poses.append(pose_to_display_transform(vo_pose, pose_scale))
+        frame = draw_keypoints(frame, vo_debug["keypoints"], color=(0, 255, 255), radius=2)
+
       if display_3d is not None:
         display_3d.draw(display_poses, display_path, frame_idx, stream_id="ground_truth")
         display_3d.draw(odometry_display_poses, path=None, frame_idx=frame_idx, color=(0.0, 0.4, 1.0), stream_id="odometry")
         display_3d.draw(imu_display_poses, path=None, frame_idx=frame_idx, color=(1.0, 0.0, 1.0), stream_id="imu")
         display_3d.draw(gnss_display_poses, path=None, frame_idx=frame_idx, color=(1.0, 1.0, 0.0), stream_id="gnss")
+        if vo_display_poses:
+          display_3d.draw(np.asarray(vo_display_poses), path=None, frame_idx=frame_idx, color=(0.0, 1.0, 1.0), stream_id="visual_odometry")
 
       if RENDER:
         cv2.imshow("DISPLAY 2D", frame)

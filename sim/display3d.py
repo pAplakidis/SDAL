@@ -95,8 +95,8 @@ class Display3D:
           stream_id, poses, path, frame_idx, color = q.get()
           if stream_id not in streams:
             streams[stream_id] = make_stream_state(color)
-            vis.add_geometry(streams[stream_id]["path_lines"])
-            vis.add_geometry(streams[stream_id]["current_point"])
+            vis.add_geometry(streams[stream_id]["path_lines"], reset_bounding_box=False)
+            vis.add_geometry(streams[stream_id]["current_point"], reset_bounding_box=False)
 
           stream = streams[stream_id]
           stream["color"] = normalize_color(color)
@@ -114,7 +114,8 @@ class Display3D:
 
           while len(stream["frustums"]) < min(len(poses), max_frames):
             frustum = create_camera_frustum(o3d, color=stream["color"])
-            vis.add_geometry(frustum)
+            reset_bounding_box = not any(s["drawn_frustums"] > 0 for s in streams.values())
+            vis.add_geometry(frustum, reset_bounding_box=reset_bounding_box)
             stream["frustums"].append(frustum)
 
           if stream["drawn_frustums"] > len(poses):
@@ -125,7 +126,8 @@ class Display3D:
             stream["drawn_frustums"] = 0
             while len(stream["frustums"]) < min(len(poses), max_frames):
               frustum = create_camera_frustum(o3d, color=stream["color"])
-              vis.add_geometry(frustum)
+              reset_bounding_box = not any(s["drawn_frustums"] > 0 for s in streams.values())
+              vis.add_geometry(frustum, reset_bounding_box=reset_bounding_box)
               stream["frustums"].append(frustum)
 
           while (
