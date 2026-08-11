@@ -1,5 +1,6 @@
 import os
 import random
+from tqdm import trange
 from queue import Queue, Empty
 
 import carla
@@ -33,6 +34,7 @@ VIDEO_PRESET = os.getenv("VIDEO_PRESET", "medium")
 PLOG_POSES = os.path.join(OUT_PATH, "poses.npy")
 PLOG_DESIRES = os.path.join(OUT_PATH, "desires.npy")
 PLOG_STEERING = os.path.join(OUT_PATH, "steering_angles.npy")
+PLOG_THROTTLE = os.path.join(OUT_PATH, "throttles.npy")
 PLOG_SPEEDS = os.path.join(OUT_PATH, "speeds.npy")
 PLOG_IMU = os.path.join(OUT_PATH, "imu.npy")
 PLOG_GNSS = os.path.join(OUT_PATH, "gnss.npy")
@@ -208,6 +210,7 @@ def spawn_ego_vehicle(world, traffic_manager):
 
   configure_vehicle_physics(vehicle)
   vehicle.set_autopilot(True, traffic_manager.get_port())
+  traffic_manager.update_vehicle_lights(vehicle, True)
   actor_list.append(vehicle)
   print("[*] Ego vehicle spawned")
   return vehicle
@@ -221,7 +224,14 @@ def spawn_sensors(world, vehicle):
   imu_queue = Queue()
   gnss_queue = Queue()
 
-  sensor_transform = carla.Transform(
+  camera_transform = carla.Transform(
+    carla.Location(
+      x=1.8,
+      z=1.7,
+    )
+  )
+
+  aux_transform = carla.Transform(
     carla.Location(
       x=0.8,
       z=1.13,
@@ -235,7 +245,7 @@ def spawn_sensors(world, vehicle):
   camera_bp.set_attribute("fov", "70")
   # camera_bp.set_attribute("sensor_tick", str(FIXED_DELTA_SECONDS))
   camera_bp.set_attribute("sensor_tick", "0.0")
-  camera = world.spawn_actor(camera_bp, sensor_transform, attach_to=vehicle)
+  camera = world.spawn_actor(camera_bp, camera_transform, attach_to=vehicle)
   camera.listen(camera_queue.put)
   actor_list.append(camera)
   print("[*] Camera spawned")
@@ -246,7 +256,7 @@ def spawn_sensors(world, vehicle):
   segmentation_bp.set_attribute("image_size_y", str(IMG_HEIGHT))
   segmentation_bp.set_attribute("fov", "70")
   segmentation_bp.set_attribute("sensor_tick", "0.0")
-  segmentation_camera = world.spawn_actor(segmentation_bp, sensor_transform, attach_to=vehicle)
+  segmentation_camera = world.spawn_actor(segmentation_bp, camera_transform, attach_to=vehicle)
   segmentation_camera.listen(segmentation_queue.put)
   actor_list.append(segmentation_camera)
   print("[*] Segmentation camera spawned")
@@ -255,7 +265,7 @@ def spawn_sensors(world, vehicle):
   imu_bp = bp_lib.find("sensor.other.imu")
   # imu_bp.set_attribute("sensor_tick", str(FIXED_DELTA_SECONDS))
   imu_bp.set_attribute("sensor_tick", "0.0.")
-  imu = world.spawn_actor(imu_bp, sensor_transform, attach_to=vehicle)
+  imu = world.spawn_actor(imu_bp, aux_transform, attach_to=vehicle)
   imu.listen(imu_queue.put)
   actor_list.append(imu)
   print("[*] IMU spawned")
@@ -264,7 +274,7 @@ def spawn_sensors(world, vehicle):
   gnss_bp = bp_lib.find("sensor.other.gnss")
   # gnss_bp.set_attribute("sensor_tick", str(FIXED_DELTA_SECONDS))
   gnss_bp.set_attribute("sensor_tick", "0.0")
-  gnss = world.spawn_actor(gnss_bp, sensor_transform, attach_to=vehicle)
+  gnss = world.spawn_actor(gnss_bp, aux_transform, attach_to=vehicle)
   gnss.listen(gnss_queue.put)
   actor_list.append(gnss)
   print("[*] GNSS spawned")
@@ -347,6 +357,7 @@ def mainloop(world, vehicle, traffic_manager, camera_queue, segmentation_queue, 
   poses = []
   desires = []
   steering_angles = []
+  throttles = []
   speeds = []
   imu_data = []
   gnss_data = []
@@ -359,9 +370,7 @@ def mainloop(world, vehicle, traffic_manager, camera_queue, segmentation_queue, 
     shape=(total_frames, IMG_HEIGHT, IMG_WIDTH),
   )
   print(f"[*] Recording {REC_TIME}s = {total_frames} frames at {FPS} FPS")
-  for frame_index in range(total_frames):
-    print(f"[*] Frame {frame_index+1}/{total_frames}")
-
+  for frame_index in (t := trange(total_frames)):
     # Advance the entire simulation exactly one fixed step.
     carla_frame = world.tick()
 
@@ -396,6 +405,7 @@ def mainloop(world, vehicle, traffic_manager, camera_queue, segmentation_queue, 
 
     desires.append(desire)
     steering_angles.append(control.steer)
+    throttles.append(control.throttle)
     speeds.append(speed)
 
     # IMU
@@ -417,10 +427,11 @@ def mainloop(world, vehicle, traffic_manager, camera_queue, segmentation_queue, 
     ])
 
     if frame_index % FPS == 0:
-      print(
+      t.set_description(
         f"CARLA frame {carla_frame} "
         f"| speed={speed:.2f} m/s "
         f"| steer={control.steer:.3f} "
+        f"| throttle={control.throttle:.3f} "
         f"| desire={DESIRE[desire]}"
       )
 
@@ -430,6 +441,7 @@ def mainloop(world, vehicle, traffic_manager, camera_queue, segmentation_queue, 
     "poses": np.asarray(poses, dtype=np.float32),
     "desires": np.asarray(desires, dtype=np.uint8),
     "steering_angles": np.asarray(steering_angles, dtype=np.float32),
+    "throttles": np.asarray(throttles, dtype=np.float32),
     "speeds": np.asarray(speeds, dtype=np.float32),
     "imu": np.asarray(imu_data, dtype=np.float32),
     "gnss": np.asarray(gnss_data, dtype=np.float64),
@@ -440,6 +452,7 @@ def save_data(data):
   np.save(PLOG_POSES, data["poses"])
   np.save(PLOG_DESIRES, data["desires"])
   np.save(PLOG_STEERING, data["steering_angles"])
+  np.save(PLOG_THROTTLE, data["throttles"])
   np.save(PLOG_SPEEDS, data["speeds"])
   np.save(PLOG_IMU, data["imu"])
   np.save(PLOG_GNSS, data["gnss"])
@@ -448,6 +461,7 @@ def save_data(data):
   print(f"[+] Poses:             {PLOG_POSES}")
   print(f"[+] Desires:           {PLOG_DESIRES}")
   print(f"[+] Steering angles:   {PLOG_STEERING}")
+  print(f"[+] Throttles:         {PLOG_THROTTLE}")
   print(f"[+] Speeds:            {PLOG_SPEEDS}")
   print(f"[+] IMU:               {PLOG_IMU}")
   print(f"[+] GNSS:              {PLOG_GNSS}")

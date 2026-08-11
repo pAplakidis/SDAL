@@ -13,6 +13,7 @@ Required files:
 - `poses.npy`: raw vehicle poses with shape `(frames, 6)`, ordered `[x, y, z, roll, pitch, yaw]`.
 - `desires.npy`: per-frame desire IDs.
 - `steering_angles.npy`: per-frame steering values.
+- `throttles.npy`: per-frame throttle values.
 - `speeds.npy`: per-frame speed values.
 - `imu.npy`: per-frame IMU values.
 - `gnss.npy`: per-frame GNSS values.
@@ -25,7 +26,9 @@ Required files:
 
 ## Path Projection
 
-Future `poses.npy` positions are projected onto the RGB image only. The projection uses the current vehicle pose as camera reference, the collector camera offset `[0.8, 0.0, 1.13]`, and the CARLA RGB camera FOV of `70` degrees.
+Future `poses.npy` positions are projected onto the RGB image only. The projection uses the current vehicle pose as camera reference, the collector camera offset `[1.8, 0.0, 1.7]`, and the CARLA RGB camera FOV of `70` degrees.
+
+Current collector camera offset is `[1.8, 0.0, 1.7]`.
 
 Projection flow:
 
@@ -50,10 +53,13 @@ Environment switches:
 - `MAX_FRAMES=10`: limit replay length.
 - `LOOKAHEAD=200`: number of future frames projected onto RGB image.
 
+Older datasets without `throttles.npy` still replay, but throttle overlay prints `N/A`.
+
 Press `q` in an OpenCV window to stop replay.
 
 ## Notes
 
 - 3D pose display is normalized separately from image projection. Normalized poses subtract the first pose and auto-fit the path to Open3D scale.
 - Image projection uses raw CARLA coordinates, not normalized Open3D coordinates.
+- Old data collected before camera lift may still show ego car/hood in segmentation; recollect if needed.
 - If no path appears, future points may be behind the current camera, outside the camera FOV, or hidden by inaccurate pose/camera calibration.
