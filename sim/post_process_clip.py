@@ -5,6 +5,8 @@ import cv2
 import numpy as np
 from pathlib import Path
 
+from tqdm import trange
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
   sys.path.insert(0, str(REPO_ROOT))
@@ -21,7 +23,7 @@ DATA_PATH = os.getenv("DATA_PATH", None)
 if DATA_PATH is None:
   print("Usage: DATA_PATH=<path_to_data> python post_process_clip.py")
 
-RENDER = int(os.getenv("RENDER", 0))
+RENDER = os.getenv("RENDER", "0").lower() not in ("0", "false", "no", "off", "")
 
 # Edit these constants directly when tuning post-processing.
 ODOMETRY_DT = FIXED_DELTA_SECONDS
@@ -36,6 +38,7 @@ VO_MATCH_RATIO = 0.75
 VO_MAX_HAMMING_DISTANCE = 32
 VO_MIN_INLIERS = 20
 VO_RANSAC_THRESHOLD = 1.0
+PRINT_FRAME_DATA = False
 
 
 def load_array(path, mmap_mode=None):
@@ -255,14 +258,16 @@ if __name__ == "__main__":
   if RENDER:
     display_3d = Display3D(DISPLAY_3D_W, DISPLAY_3D_H, max_frames=total_frames)
 
+  progress = trange(total_frames, desc="Post-process", unit="frame")
   try:
-    for frame_idx in range(total_frames):
+    for frame_idx in progress:
       ret, frame = cap.read()
       if not ret:
         print(f"[!] Video ended at frame {frame_idx}")
         break
 
-      print_frame_data(frame_idx, data)
+      if PRINT_FRAME_DATA:
+        print_frame_data(frame_idx, data)
 
       if VO_ENABLED:
         speed = None if frame_idx == 0 else data["speeds"][frame_idx - 1]
@@ -279,6 +284,12 @@ if __name__ == "__main__":
       predicted_poses.append(predicted_pose)
       predicted_display_poses.append(pose_to_display_transform(predicted_pose, pose_scale))
 
+      predicted_error_m = float(np.linalg.norm(predicted_pose[:3] - ground_truth_poses[frame_idx, :3]))
+      progress.set_postfix(
+        vo_inliers=vo_debug["inliers"] if VO_ENABLED else 0,
+        pred_err=f"{predicted_error_m:.2f}m",
+      )
+
       if display_3d is not None:
         display_3d.draw(display_poses, display_path, frame_idx, stream_id="ground_truth")
         display_3d.draw(odometry_display_poses, path=None, frame_idx=frame_idx, color=(0.0, 0.4, 1.0), stream_id="odometry")
@@ -294,8 +305,8 @@ if __name__ == "__main__":
         if cv2.waitKey(1) & 0xFF == ord("q"):
           break
 
-      print()
   finally:
+    progress.close()
     cap.release()
     cv2.destroyAllWindows()
 

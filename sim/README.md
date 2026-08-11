@@ -12,7 +12,7 @@ python -m pip install -r requirements.txt
 3. Install extra runtime deps used by replay/post-process as needed:
 
 ```bash
-python -m pip install open3d scipy scikit-image
+python -m pip install scipy scikit-image
 ```
 
 4. Install CARLA 0.9.16 Python API/egg and start CARLA server.
@@ -43,6 +43,14 @@ Collector writes:
 - `imu.npy`
 - `gnss.npy`
 - `segmentation.npy`
+
+Batch run:
+
+```bash
+./collect_sim_data.sh
+```
+
+This script collects across maps/weather, then runs `post_process_clip.py` per dataset so `predicted_poses.npy` and `pose_metrics.json` get written too.
 
 ## Replay
 
