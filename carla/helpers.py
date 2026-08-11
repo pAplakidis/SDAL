@@ -205,3 +205,5 @@ def frame_count(cap, arrays):
     counts.append(video_count)
   return min(counts)
 
+def wrap_angle_deg(angle_deg):
+  return (float(angle_deg) + 180.0) % 360.0 - 180.0

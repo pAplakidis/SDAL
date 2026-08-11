@@ -4,10 +4,10 @@ import time
 import numpy as np
 from pathlib import Path
 
+from carla_config import FIXED_DELTA_SECONDS
 from helpers import *
 from display3d_open3d import Display3D
 
-# TODO: odometry poses (steering, speed)
 # TODO: IMU poses
 # TODO: GNSS poses (translation only?)
 # TODO: visual odometry (copy SLAM)
@@ -20,9 +20,11 @@ if DATA_PATH is None:
   print("Usage: DATA_PATH=<path_to_data> python post_process_clip.py")
 
 RENDER = os.getenv("RENDER", 1) # TODO: default 0 when done
-ODOMETRY_DT = float(os.getenv("ODOMETRY_DT", 0.05))
+ODOMETRY_DT = float(os.getenv("ODOMETRY_DT", FIXED_DELTA_SECONDS))
 ODOMETRY_WHEELBASE_M = float(os.getenv("ODOMETRY_WHEELBASE_M", 2.875))
 ODOMETRY_MAX_STEER_DEG = float(os.getenv("ODOMETRY_MAX_STEER_DEG", 35.0))
+IMU_GRAVITY_MPS2 = float(os.getenv("IMU_GRAVITY_MPS2", 9.81))
+IMU_ACCEL_MAX_MPS2 = float(os.getenv("IMU_ACCEL_MAX_MPS2", 100.0))
 
 
 def load_array(path, mmap_mode=None):
@@ -59,6 +61,22 @@ def print_frame_data(frame_idx, arrays):
   print(f"gnss [lat lon alt]: {arrays['gnss'][frame_idx]}")
 
 
+def wrap_angle_deg(angle_deg):
+  return (float(angle_deg) + 180.0) % 360.0 - 180.0
+
+
+def zero_start_pose_stream(raw_poses):
+  raw_poses = np.asarray(raw_poses, dtype=np.float32)
+  zeroed = raw_poses.copy()
+  initial_rot = euler_to_rotation_matrix(zeroed[0, 3], zeroed[0, 4], zeroed[0, 5])
+  zeroed[:, :3] = (zeroed[:, :3] - zeroed[0, :3]) @ initial_rot
+  zeroed[:, 3] = np.vectorize(wrap_angle_deg)(zeroed[:, 3] - zeroed[0, 3])
+  zeroed[:, 4] = np.vectorize(wrap_angle_deg)(zeroed[:, 4] - zeroed[0, 4])
+  zeroed[:, 5] = np.vectorize(wrap_angle_deg)(zeroed[:, 5] - zeroed[0, 5])
+  return zeroed
+
+
+# assumes bicycle model kinematics
 def pose_from_odometry(curr_pose, steering_angle, speed_mps, dt):
   x, y, z, roll, pitch, yaw_deg = curr_pose
   yaw = np.deg2rad(float(yaw_deg))
@@ -92,6 +110,60 @@ def pose_from_odometry(curr_pose, steering_angle, speed_mps, dt):
   ], dtype=np.float32)
 
 
+def imu_pose_from_measurement(curr_pose, curr_velocity, imu, dt):
+  curr_pose = np.asarray(curr_pose, dtype=np.float64)
+  curr_velocity = np.asarray(curr_velocity, dtype=np.float64)
+
+  roll_deg, pitch_deg, yaw_deg = curr_pose[3:6]
+  gyro = np.asarray([
+    imu[3],
+    imu[4],
+    imu[5],
+  ], dtype=np.float64)
+  accel_body = np.asarray([
+    imu[0],
+    imu[1],
+    imu[2],
+  ], dtype=np.float64)
+
+  if np.linalg.norm(accel_body) > IMU_ACCEL_MAX_MPS2:
+    accel_body = np.zeros(3, dtype=np.float64)
+
+  roll_deg = wrap_angle_deg(roll_deg + np.rad2deg(gyro[0] * dt))
+  pitch_deg = wrap_angle_deg(pitch_deg + np.rad2deg(gyro[1] * dt))
+  yaw_deg = wrap_angle_deg(yaw_deg + np.rad2deg(gyro[2] * dt))
+
+  world_accel = euler_to_rotation_matrix(roll_deg, pitch_deg, yaw_deg).dot(accel_body)
+  world_accel[2] -= IMU_GRAVITY_MPS2
+  next_velocity = curr_velocity + world_accel * dt
+  next_position = curr_pose[:3] + next_velocity * dt
+
+  return (
+    np.array([
+      next_position[0],
+      next_position[1],
+      next_position[2],
+      roll_deg,
+      pitch_deg,
+      yaw_deg,
+    ], dtype=np.float32),
+    next_velocity,
+  )
+
+
+def imu_poses_from_measurements(imu_data, dt):
+  imu_poses = np.zeros((len(imu_data), 6), dtype=np.float32)
+  velocity = np.zeros(3, dtype=np.float64)
+  for frame_idx in range(1, len(imu_poses)):
+    imu_poses[frame_idx], velocity = imu_pose_from_measurement(
+      imu_poses[frame_idx - 1],
+      velocity,
+      imu_data[frame_idx],
+      dt,
+    )
+  return imu_poses
+
+
 def odometry_from_controls(steering_angles, speeds_mps, dt):
   odometry_poses = np.zeros((len(speeds_mps), 6), dtype=np.float32)
   for frame_idx in range(1, len(odometry_poses)):
@@ -108,16 +180,20 @@ if __name__ == "__main__":
   print(f"[*] Replay data: {DATA_PATH}")
   data = load_data(DATA_PATH)
 
-  display_poses, display_path, pose_scale = normalize_poses(data["poses"])
+  display_poses, display_path, pose_scale = normalize_poses(zero_start_pose_stream(data["poses"]))
   print(f"[*] Pose scale: {pose_scale:.6f} display units per CARLA unit")
 
-  odometry_poses = odometry_from_controls(data["steers"], data["speeds"], ODOMETRY_DT)
+  odometry_poses = zero_start_pose_stream(odometry_from_controls(data["steers"], data["speeds"], ODOMETRY_DT))
   odometry_display_poses, odometry_display_path, odometry_pose_scale = normalize_poses(odometry_poses)
   print(f"[*] Odometry pose scale: {odometry_pose_scale:.6f} display units per odometry unit")
 
+  imu_poses = zero_start_pose_stream(imu_poses_from_measurements(data["imu"], ODOMETRY_DT))
+  imu_display_poses, imu_display_path, imu_pose_scale = normalize_poses(imu_poses)
+  print(f"[*] IMU pose scale: {imu_pose_scale:.6f} display units per IMU unit")
+
   cap = cv2.VideoCapture(data["video_path"])
   if not cap.isOpened():
-    raise RuntimeError(f"Could not open HEVC video: {data["video_path"]}")
+    raise RuntimeError(f"Could not open HEVC video: {data['video_path']}")
 
   total_frames = frame_count(cap, data)
   max_frames = os.getenv("MAX_FRAMES")
@@ -142,6 +218,7 @@ if __name__ == "__main__":
       if display_3d is not None:
         display_3d.draw(display_poses, display_path, frame_idx, stream_id="ground_truth")
         display_3d.draw(odometry_display_poses, path=None, frame_idx=frame_idx, color=(0.0, 0.4, 1.0), stream_id="odometry")
+        display_3d.draw(imu_display_poses, path=None, frame_idx=frame_idx, color=(1.0, 0.0, 1.0), stream_id="imu")
 
       if RENDER:
         cv2.imshow("DISPLAY 2D", frame)
