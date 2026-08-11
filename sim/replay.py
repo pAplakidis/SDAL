@@ -43,6 +43,7 @@ def load_optional_array(data_path, filename, mmap_mode=None):
 def load_dataset(data_path):
   return {
     "poses": load_required_array(data_path, "poses.npy"),
+    "predicted_poses": load_optional_array(data_path, "predicted_poses.npy"),
     "desires": load_required_array(data_path, "desires.npy"),
     "steering_angles": load_required_array(data_path, "steering_angles.npy"),
     "throttles": load_required_array(data_path, "throttles.npy"),
@@ -51,6 +52,37 @@ def load_dataset(data_path):
     "gnss": load_required_array(data_path, "gnss.npy"),
     "segmentation": load_required_array(data_path, "segmentation.npy", mmap_mode="r"),
   }
+
+
+def pose_stream_from_zero_start(local_poses, reference_poses):
+  local_poses = np.asarray(local_poses, dtype=np.float32)
+  reference_poses = np.asarray(reference_poses, dtype=np.float32)
+  raw_poses = local_poses.copy()
+  initial_rot = euler_to_rotation_matrix(
+    reference_poses[0, 3],
+    reference_poses[0, 4],
+    reference_poses[0, 5],
+  )
+  raw_poses[:, :3] = local_poses[:, :3] @ initial_rot.T + reference_poses[0, :3]
+  raw_poses[:, 3] = local_poses[:, 3] + reference_poses[0, 3]
+  raw_poses[:, 4] = local_poses[:, 4] + reference_poses[0, 4]
+  raw_poses[:, 5] = local_poses[:, 5] + reference_poses[0, 5]
+  return raw_poses
+
+
+def display_poses_from_reference(raw_poses, reference_pose, scale):
+  reference_position = reference_pose[:3].astype(np.float64)
+  positions = raw_poses[:, :3].astype(np.float64)
+  relative = positions - reference_position
+  display_path = np.column_stack((relative[:, 0], relative[:, 2], -relative[:, 1])) * float(scale)
+
+  display_poses = []
+  for pose_row, position in zip(raw_poses, display_path):
+    transform = np.eye(4)
+    transform[:3, :3] = euler_to_rotation_matrix(pose_row[3], pose_row[4], pose_row[5])
+    transform[:3, 3] = position
+    display_poses.append(transform)
+  return np.asarray(display_poses), display_path
 
 
 def project_path_to_image(raw_poses, frame_idx, lookahead, image_shape):
@@ -91,15 +123,17 @@ def project_path_to_image(raw_poses, frame_idx, lookahead, image_shape):
   return image_points[in_frame].astype(np.int32)
 
 
-def draw_projected_path(frame, image_points):
+def draw_projected_path(frame, image_points, line_color=(0, 0, 255), current_color=None):
   if len(image_points) == 0:
     return frame
+  if current_color is None:
+    current_color = line_color
 
   if len(image_points) > 1:
-    cv2.polylines(frame, [image_points.reshape((-1, 1, 2))], False, (0, 0, 255), 3)
+    cv2.polylines(frame, [image_points.reshape((-1, 1, 2))], False, line_color, 3)
   for idx, point in enumerate(image_points):
     radius = 3 if idx < len(image_points) - 1 else 6
-    color = (0, 0, 255) if idx < len(image_points) - 1 else (0, 0, 180)
+    color = line_color if idx < len(image_points) - 1 else current_color
     cv2.circle(frame, tuple(point), radius, color, -1)
   return frame
 
@@ -155,8 +189,28 @@ if __name__ == "__main__":
 
   print(f"[*] Replay data: {data_path}")
   arrays = load_dataset(data_path)
-  display_poses, display_path, pose_scale = normalize_poses(arrays["poses"])
+  ground_truth_poses = arrays["poses"]
+  predicted_world_poses = None
+  if arrays["predicted_poses"] is not None:
+    predicted_count = min(len(arrays["predicted_poses"]), len(ground_truth_poses))
+    predicted_world_poses = pose_stream_from_zero_start(
+      arrays["predicted_poses"][:predicted_count],
+      ground_truth_poses[:predicted_count],
+    )
+
+  display_poses, display_path, pose_scale = normalize_poses(ground_truth_poses)
   print(f"[*] Pose scale: {pose_scale:.6f} display units per CARLA unit")
+  predicted_display_poses = None
+  predicted_display_path = None
+  if predicted_world_poses is not None:
+    predicted_display_poses, predicted_display_path = display_poses_from_reference(
+      predicted_world_poses,
+      ground_truth_poses[0],
+      pose_scale,
+    )
+    print("[*] Rendering predicted poses: yes")
+  else:
+    print("[*] Rendering predicted poses: no")
 
   cap = cv2.VideoCapture(str(video_path))
   if not cap.isOpened():
@@ -185,11 +239,22 @@ if __name__ == "__main__":
       print_frame_data(frame_idx, arrays)
 
       if display_3d is not None:
-        display_3d.draw(display_poses, display_path, frame_idx)
+        display_3d.draw(display_poses, display_path, frame_idx, stream_id="ground_truth")
+        if predicted_display_poses is not None and frame_idx < len(predicted_display_poses):
+          display_3d.draw(
+            predicted_display_poses,
+            predicted_display_path,
+            frame_idx,
+            color=(1.0, 0.0, 0.0),
+            stream_id="predicted",
+          )
 
       if render_2d:
-        image_points = project_path_to_image(arrays["poses"], frame_idx, lookahead, frame.shape)
-        frame = draw_projected_path(frame, image_points)
+        gt_points = project_path_to_image(ground_truth_poses, frame_idx, lookahead, frame.shape)
+        frame = draw_projected_path(frame, gt_points, line_color=(0, 255, 0), current_color=(0, 180, 0))
+        if predicted_world_poses is not None and frame_idx < len(predicted_world_poses):
+          predicted_points = project_path_to_image(predicted_world_poses, frame_idx, lookahead, frame.shape)
+          frame = draw_projected_path(frame, predicted_points, line_color=(0, 0, 255), current_color=(0, 0, 180))
         frame = annotate_frame(frame, frame_idx, total_frames, arrays, pose_scale)
         segmentation = colorize_segmentation(arrays["segmentation"][frame_idx])
 

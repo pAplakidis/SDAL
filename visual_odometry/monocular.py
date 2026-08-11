@@ -105,7 +105,7 @@ def match_features(prev_descriptors, curr_descriptors, ratio, max_hamming_distan
 
 def recover_relative_pose(prev_keypoints, curr_keypoints, matches, camera_matrix, ransac_threshold):
   if len(matches) < 8:
-    return None, None, 0
+    return None, None, 0, None
 
   prev_points = np.asarray([prev_keypoints[match.queryIdx] for match in matches], dtype=np.float32)
   curr_points = np.asarray([curr_keypoints[match.trainIdx] for match in matches], dtype=np.float32)
@@ -119,21 +119,22 @@ def recover_relative_pose(prev_keypoints, curr_keypoints, matches, camera_matrix
     threshold=ransac_threshold,
   )
   if essential is None:
-    return None, None, 0
+    return None, None, 0, None
   if essential.shape[0] > 3:
     essential = essential[:3]
 
-  inlier_count, rotation, translation, _ = cv2.recoverPose(
+  inlier_count, rotation, translation, pose_mask = cv2.recoverPose(
     essential,
     prev_points,
     curr_points,
     camera_matrix,
     mask=mask,
   )
+  inlier_mask = None if pose_mask is None else pose_mask.reshape(-1).astype(bool)
   if inlier_count < 8:
-    return None, None, int(inlier_count)
+    return None, None, int(inlier_count), inlier_mask
 
-  return rotation, translation.reshape(3), int(inlier_count)
+  return rotation, translation.reshape(3), int(inlier_count), inlier_mask
 
 
 def visual_scale_for_frame(frame_idx, speeds, dt):
@@ -160,6 +161,23 @@ def draw_keypoints(frame, keypoints, color=(0, 255, 255), radius=2):
   output = frame.copy()
   for x, y in np.asarray(keypoints, dtype=np.float32):
     cv2.circle(output, (int(round(x)), int(round(y))), radius=radius, color=color, thickness=-1)
+  return output
+
+
+def draw_optical_flow(frame, prev_points, curr_points, line_color=(255, 0, 0), point_color=(0, 255, 255)):
+  if prev_points is None or curr_points is None:
+    return frame
+  prev_points = np.asarray(prev_points, dtype=np.float32)
+  curr_points = np.asarray(curr_points, dtype=np.float32)
+  if len(prev_points) == 0 or len(curr_points) == 0:
+    return frame
+
+  output = frame.copy()
+  for prev_point, curr_point in zip(prev_points, curr_points):
+    prev_xy = (int(round(prev_point[0])), int(round(prev_point[1])))
+    curr_xy = (int(round(curr_point[0])), int(round(curr_point[1])))
+    cv2.line(output, prev_xy, curr_xy, color=line_color, thickness=2)
+    cv2.circle(output, curr_xy, radius=3, color=point_color, thickness=-1)
   return output
 
 
@@ -213,6 +231,8 @@ class VisualOdometry:
 
     debug = {
       "keypoints": None,
+      "flow_prev": None,
+      "flow_curr": None,
       "matches": [],
       "inliers": 0,
       "scale": self.image_scale,
@@ -220,7 +240,7 @@ class VisualOdometry:
 
     if self.prev_keypoints is not None:
       matches = match_features(self.prev_descriptors, curr_descriptors, self.ratio, self.max_hamming_distance)
-      rel_rotation, rel_translation, inliers = recover_relative_pose(
+      rel_rotation, rel_translation, inliers, inlier_mask = recover_relative_pose(
         self.prev_keypoints,
         curr_keypoints,
         matches,
@@ -229,6 +249,18 @@ class VisualOdometry:
       )
       debug["matches"] = matches
       debug["inliers"] = int(inliers)
+
+      flow_matches = matches
+      if inlier_mask is not None and len(inlier_mask) == len(matches):
+        flow_matches = [match for match, keep in zip(matches, inlier_mask) if keep]
+      if flow_matches:
+        flow_prev = np.asarray([self.prev_keypoints[match.queryIdx] for match in flow_matches], dtype=np.float32)
+        flow_curr = np.asarray([curr_keypoints[match.trainIdx] for match in flow_matches], dtype=np.float32)
+        if self.image_scale != 1.0:
+          flow_prev = flow_prev / self.image_scale
+          flow_curr = flow_curr / self.image_scale
+        debug["flow_prev"] = flow_prev
+        debug["flow_curr"] = flow_curr
 
       if rel_rotation is not None and inliers >= self.min_inliers:
         scale = visual_scale_from_speed(speed_mps, dt)

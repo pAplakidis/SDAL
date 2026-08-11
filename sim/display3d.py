@@ -150,12 +150,12 @@ class Display3D:
             else:
               lines = np.zeros((0, 2), dtype=np.int32)
             stream["path_lines"].lines = o3d.utility.Vector2iVector(lines)
-            set_lineset_color(stream["path_lines"], DEFAULT_PATH_COLOR, len(lines))
+            set_lineset_color(stream["path_lines"], stream["color"], len(lines))
             vis.update_geometry(stream["path_lines"])
 
             curr_idx = min(frame_idx, len(path) - 1)
             stream["current_point"].points = o3d.utility.Vector3dVector(path[curr_idx:curr_idx + 1])
-            stream["current_point"].colors = o3d.utility.Vector3dVector([DEFAULT_PATH_COLOR])
+            stream["current_point"].colors = o3d.utility.Vector3dVector([stream["color"]])
             vis.update_geometry(stream["current_point"])
 
         if not vis.poll_events():

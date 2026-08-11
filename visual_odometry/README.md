@@ -22,7 +22,7 @@ Pipeline:
 8. Scale translation by `speed_mps * ODOMETRY_DT`.
 9. Accumulate relative transforms into pose stream.
 10. Convert OpenCV camera axes to local vehicle-like axes.
-11. Draw detected keypoints on 2D frame during replay.
+11. Draw detected keypoints and optical-flow match lines on 2D frame during replay.
 
 Output pose schema matches other sources:
 
@@ -54,7 +54,7 @@ This makes visual output comparable with existing CARLA pose sources. For real-w
 
 ## Display
 
-Visual odometry is drawn as cyan in 3D view and keypoints are drawn on 2D frame:
+Visual odometry is drawn as cyan in 3D view. Keypoints and frame-to-frame optical-flow lines are drawn on 2D frame:
 
 ```python
 color=(0.0, 1.0, 1.0)

@@ -1,7 +1,7 @@
 import os
 import sys
+import json
 import cv2
-import time
 import numpy as np
 from pathlib import Path
 
@@ -13,17 +13,15 @@ from carla_config import FIXED_DELTA_SECONDS, IMG_WIDTH, IMG_HEIGHT
 from helpers import *
 from display3d import Display3D
 from utils.coordinates import LocalCoord
-from visual_odometry import VisualOdometry, draw_keypoints, pose_to_display_transform
+from sensor_fusion import PoseEKF, compute_pose_metrics, pose_to_display_transform
+from visual_odometry import VisualOdometry, draw_keypoints, draw_optical_flow
 
-# TODO: sensor fusion with Kalman filter
-# TODO: time for performance and latency analysis
-# TODO: compare error with ground truth + save predicted poses
 
 DATA_PATH = os.getenv("DATA_PATH", None)
 if DATA_PATH is None:
   print("Usage: DATA_PATH=<path_to_data> python post_process_clip.py")
 
-RENDER = os.getenv("RENDER", "1").lower() not in ("0", "false", "no", "off", "")
+RENDER = int(os.getenv("RENDER", 0))
 
 # Edit these constants directly when tuning post-processing.
 ODOMETRY_DT = FIXED_DELTA_SECONDS
@@ -127,14 +125,7 @@ def pose_from_odometry(curr_pose, steering_angle, speed_mps, dt):
       next_x = x + turn_radius * (np.sin(next_yaw) - np.sin(yaw))
       next_y = y - turn_radius * (np.cos(next_yaw) - np.cos(yaw))
 
-  return np.array([
-    next_x,
-    next_y,
-    z,
-    roll,
-    pitch,
-    np.rad2deg(next_yaw),
-  ], dtype=np.float32)
+  return np.array([next_x, next_y, z, roll, pitch, np.rad2deg(next_yaw)], dtype=np.float32)
 
 
 def imu_pose_from_measurement(curr_pose, curr_velocity, imu, dt):
@@ -142,16 +133,8 @@ def imu_pose_from_measurement(curr_pose, curr_velocity, imu, dt):
   curr_velocity = np.asarray(curr_velocity, dtype=np.float64)
 
   roll_deg, pitch_deg, yaw_deg = curr_pose[3:6]
-  gyro = np.asarray([
-    imu[3],
-    imu[4],
-    imu[5],
-  ], dtype=np.float64)
-  accel_body = np.asarray([
-    imu[0],
-    imu[1],
-    imu[2],
-  ], dtype=np.float64)
+  gyro = np.asarray([imu[3], imu[4], imu[5]], dtype=np.float64)
+  accel_body = np.asarray([imu[0], imu[1], imu[2]], dtype=np.float64)
 
   if np.linalg.norm(accel_body) > IMU_ACCEL_MAX_MPS2:
     accel_body = np.zeros(3, dtype=np.float64)
@@ -218,7 +201,8 @@ if __name__ == "__main__":
   lookahead = int(os.getenv("LOOKAHEAD", DEFAULT_LOOKAHEAD))
   print(f"[*] Total replay frames: {total_frames}")
 
-  display_poses, display_path, pose_scale = normalize_poses(zero_start_pose_stream(data["poses"]))
+  ground_truth_poses = zero_start_pose_stream(data["poses"])
+  display_poses, display_path, pose_scale = normalize_poses(ground_truth_poses)
   print(f"[*] Pose scale: {pose_scale:.6f} display units per CARLA unit")
 
   odometry_poses = zero_start_pose_stream(odometry_from_controls(data["steers"], data["speeds"], ODOMETRY_DT))
@@ -234,6 +218,16 @@ if __name__ == "__main__":
   print(f"[*] GNSS pose scale: {gnss_pose_scale:.6f} display units per GNSS unit")
 
   vo_display_poses = []
+  predicted_poses = []
+  predicted_display_poses = []
+  ekf = PoseEKF(
+    ODOMETRY_DT,
+    ODOMETRY_WHEELBASE_M,
+    ODOMETRY_MAX_STEER_DEG,
+    IMU_GRAVITY_MPS2,
+    IMU_ACCEL_MAX_MPS2,
+  )
+
   if VO_ENABLED:
     video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -274,7 +268,16 @@ if __name__ == "__main__":
         speed = None if frame_idx == 0 else data["speeds"][frame_idx - 1]
         vo_pose, vo_debug = vo.step(frame, speed_mps=speed, dt=ODOMETRY_DT)
         vo_display_poses.append(pose_to_display_transform(vo_pose, pose_scale))
+        frame = draw_optical_flow(frame, vo_debug["flow_prev"], vo_debug["flow_curr"], line_color=(255, 0, 0), point_color=(0, 255, 255))
         frame = draw_keypoints(frame, vo_debug["keypoints"], color=(0, 255, 255), radius=2)
+
+      ekf.predict(data["steers"][frame_idx], data["speeds"][frame_idx], data["imu"][frame_idx])
+      ekf.update_gnss(gnss_poses[frame_idx])
+      if VO_ENABLED and vo_debug["inliers"] >= VO_MIN_INLIERS:
+        ekf.update_visual_odometry(vo_pose)
+      predicted_pose = ekf.pose()
+      predicted_poses.append(predicted_pose)
+      predicted_display_poses.append(pose_to_display_transform(predicted_pose, pose_scale))
 
       if display_3d is not None:
         display_3d.draw(display_poses, display_path, frame_idx, stream_id="ground_truth")
@@ -283,13 +286,32 @@ if __name__ == "__main__":
         display_3d.draw(gnss_display_poses, path=None, frame_idx=frame_idx, color=(1.0, 1.0, 0.0), stream_id="gnss")
         if vo_display_poses:
           display_3d.draw(np.asarray(vo_display_poses), path=None, frame_idx=frame_idx, color=(0.0, 1.0, 1.0), stream_id="visual_odometry")
+        if predicted_display_poses:
+          display_3d.draw(np.asarray(predicted_display_poses), path=None, frame_idx=frame_idx, color=(1.0, 0.0, 0.0), stream_id="predicted")
 
       if RENDER:
         cv2.imshow("DISPLAY 2D", frame)
-        if cv2.waitKey(50) & 0xFF == ord("q"):
+        if cv2.waitKey(1) & 0xFF == ord("q"):
           break
 
       print()
   finally:
     cap.release()
     cv2.destroyAllWindows()
+
+  predicted_poses = np.asarray(predicted_poses, dtype=np.float32)
+  metrics = compute_pose_metrics(predicted_poses, ground_truth_poses)
+  predicted_path = os.path.join(DATA_PATH, "predicted_poses.npy")
+  metrics_path = os.path.join(DATA_PATH, "pose_metrics.json")
+  np.save(predicted_path, predicted_poses)
+  with open(metrics_path, "w", encoding="utf-8") as f:
+    json.dump(metrics, f, indent=2)
+
+  print(f"[+] Predicted poses: {predicted_path}")
+  print(f"[+] Pose metrics: {metrics_path}")
+  if metrics["frames"] > 0:
+    print("[*] Pose metrics summary")
+    print(f"translation_rmse_m: {metrics['translation_rmse_m']:.6f}")
+    print(f"translation_mae_m: {metrics['translation_mae_m']:.6f}")
+    print(f"final_translation_error_m: {metrics['final_translation_error_m']:.6f}")
+    print(f"yaw_rmse_deg: {metrics['yaw_rmse_deg']:.6f}")

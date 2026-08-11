@@ -57,11 +57,13 @@ Replay shows:
 - RGB video
 - semantic segmentation
 - 3D normalized ground-truth path
-- projected future path on RGB frame
+- 3D normalized predicted path when `predicted_poses.npy` exists
+- projected ground-truth future path on RGB frame in green
+- projected predicted future path on RGB frame in red when `predicted_poses.npy` exists
 
 ## Post Process
 
-Post-process clip with wheel odometry, IMU, GNSS, and visual odometry:
+Post-process clip with wheel odometry, IMU, GNSS, visual odometry, and EKF sensor fusion:
 
 ```bash
 DATA_PATH="../collected_data/1/" python post_process_clip.py
@@ -70,15 +72,28 @@ DATA_PATH="../collected_data/1/" python post_process_clip.py
 This script:
 
 - replays RGB video
-- draws GT, odometry, IMU, GNSS, and visual odometry in 3D
+- draws GT, odometry, IMU, GNSS, visual odometry, and predicted EKF poses in 3D
 - overlays visual odometry keypoints on 2D frame
+- saves `predicted_poses.npy`
+- saves `pose_metrics.json`
+
+3D colors:
+
+- ground truth: green
+- odometry: blue
+- IMU: magenta
+- GNSS: yellow
+- visual odometry: cyan
+- predicted EKF poses: red
+
+The EKF predicts from wheel odometry and IMU, then corrects with GNSS and valid visual odometry updates. Ground truth is only used for metrics.
 
 ## Workflow
 
 1. Start CARLA server.
 2. Collect dataset with `carla_collector.py`.
 3. Replay raw data with `replay.py`.
-4. Run `post_process_clip.py` for pose comparisons and visual odometry.
+4. Run `post_process_clip.py` for pose comparisons, visual odometry, and sensor fusion.
 
 ## Notes
 
@@ -86,3 +101,4 @@ This script:
 - `replay.py` accepts string boolean `RENDER=False`/unset.
 - `post_process_clip.py` currently accepts standard string boolean values for `RENDER`.
 - Visual odometry lives in `../visual_odometry/monocular.py` and runs frame-by-frame.
+- Sensor fusion lives in `../sensor_fusion/ekf.py`.
