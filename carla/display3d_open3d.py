@@ -163,10 +163,11 @@ class Display3D:
     finally:
       vis.destroy_window()
 
-  def draw(self, poses, path, frame_idx, color=DEFAULT_FRUSTUM_COLOR, stream_id="default"):
+  def draw(self, poses, path=None, frame_idx=0, color=DEFAULT_FRUSTUM_COLOR, stream_id="default"):
     if self.q is None:
       return
-    self.q.put((str(stream_id), poses.copy(), path.copy(), int(frame_idx), normalize_color(color)))
+    path_copy = None if path is None else path.copy()
+    self.q.put((str(stream_id), poses.copy(), path_copy, int(frame_idx), normalize_color(color)))
 
   def close(self):
     if self.process is not None and self.process.is_alive():
