@@ -1,4 +1,5 @@
 import os
+import sys
 import cv2
 import time
 import numpy as np
@@ -8,8 +9,12 @@ from carla_config import FIXED_DELTA_SECONDS
 from helpers import *
 from display3d_open3d import Display3D
 
-# TODO: IMU poses
-# TODO: GNSS poses (translation only?)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+  sys.path.insert(0, str(REPO_ROOT))
+
+from utils.coordinates import LocalCoord
+
 # TODO: visual odometry (copy SLAM)
 # TODO: sensor fusion with Kalman filter
 # TODO: compare error with ground truth + save predicted poses
@@ -74,6 +79,20 @@ def zero_start_pose_stream(raw_poses):
   zeroed[:, 4] = np.vectorize(wrap_angle_deg)(zeroed[:, 4] - zeroed[0, 4])
   zeroed[:, 5] = np.vectorize(wrap_angle_deg)(zeroed[:, 5] - zeroed[0, 5])
   return zeroed
+
+
+def gnss_poses_from_measurements(gnss_data, reference_pose):
+  gnss_data = np.asarray(gnss_data, dtype=np.float64)
+  converter = LocalCoord.from_geodetic(gnss_data[0])
+  ned_positions = converter.geodetic2ned(gnss_data)
+  carla_positions = np.column_stack((ned_positions[:, 1], ned_positions[:, 0], -ned_positions[:, 2]))
+
+  gnss_poses = np.zeros((len(gnss_data), 6), dtype=np.float32)
+  gnss_poses[:, :3] = carla_positions.astype(np.float32)
+  gnss_poses[:, 3] = float(reference_pose[3])
+  gnss_poses[:, 4] = float(reference_pose[4])
+  gnss_poses[:, 5] = float(reference_pose[5])
+  return gnss_poses
 
 
 # assumes bicycle model kinematics
@@ -191,6 +210,10 @@ if __name__ == "__main__":
   imu_display_poses, imu_display_path, imu_pose_scale = normalize_poses(imu_poses)
   print(f"[*] IMU pose scale: {imu_pose_scale:.6f} display units per IMU unit")
 
+  gnss_poses = zero_start_pose_stream(gnss_poses_from_measurements(data["gnss"], data["poses"][0]))
+  gnss_display_poses, gnss_display_path, gnss_pose_scale = normalize_poses(gnss_poses)
+  print(f"[*] GNSS pose scale: {gnss_pose_scale:.6f} display units per GNSS unit")
+
   cap = cv2.VideoCapture(data["video_path"])
   if not cap.isOpened():
     raise RuntimeError(f"Could not open HEVC video: {data['video_path']}")
@@ -219,6 +242,7 @@ if __name__ == "__main__":
         display_3d.draw(display_poses, display_path, frame_idx, stream_id="ground_truth")
         display_3d.draw(odometry_display_poses, path=None, frame_idx=frame_idx, color=(0.0, 0.4, 1.0), stream_id="odometry")
         display_3d.draw(imu_display_poses, path=None, frame_idx=frame_idx, color=(1.0, 0.0, 1.0), stream_id="imu")
+        display_3d.draw(gnss_display_poses, path=None, frame_idx=frame_idx, color=(1.0, 1.0, 0.0), stream_id="gnss")
 
       if RENDER:
         cv2.imshow("DISPLAY 2D", frame)
